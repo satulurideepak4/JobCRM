@@ -1,0 +1,18 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+.req_hash
+
+# Secrets
+.env
+backend/gmail_token.json
+.claude/
+
+# Node
+frontend/node_modules/
+frontend/dist/
+
+# OS
+.DS_Store

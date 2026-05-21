@@ -1,0 +1,242 @@
+JobCRM — Running Steps
+======================
+
+PORTS
+  Frontend : http://localhost:4444
+  Backend  : http://localhost:4445
+  API docs : http://localhost:4445/docs
+  Database : localhost:5431 (PostgreSQL, via Docker)
+
+SCHEDULER
+  Daily sync runs at 9:30 PM (21:30)
+  Overrride via env: SYNC_HOUR=21 SYNC_MINUTE=30
+
+
+──────────────────────────────────────────
+1. PREREQUISITES
+──────────────────────────────────────────
+  - Docker Desktop running
+  - Python 3.11+
+  - Node.js 18+
+
+
+──────────────────────────────────────────
+2. FIRST-TIME SETUP
+──────────────────────────────────────────
+  Step 1 — Copy and edit config:
+    cp .env.example .env
+    # Edit .env — set LLM_PROVIDER and matching API key (GEMINI_API_KEY etc.)
+    # Optional: set RAPIDAPI_KEY for JSearch job board
+
+  Step 2 — Gmail OAuth (required for email sync):
+    a. Go to https://console.cloud.google.com
+    b. Create a new project (or select an existing one)
+    c. APIs & Services > Enable APIs > search "Gmail API" > Enable
+    d. APIs & Services > Credentials > Create Credentials > OAuth 2.0 Client ID
+       - Application type: Web application
+       - Authorized redirect URIs: http://localhost:4445/auth/gmail/callback
+    e. Copy the Client ID and Client Secret shown after creation
+    f. Paste them into .env:
+         GMAIL_CLIENT_ID=your-client-id-here
+         GMAIL_CLIENT_SECRET=your-client-secret-here
+    g. APIs & Services > OAuth consent screen > Audience > Test users
+       - Add your Gmail address (the one you will sync)
+       - Required while the app is in "Testing" mode
+
+  Step 3 — Make start script executable:
+    chmod +x start.sh
+
+
+──────────────────────────────────────────
+3. START EVERYTHING
+──────────────────────────────────────────
+  ./start.sh
+
+  What it does:
+    1. Starts PostgreSQL in Docker
+    2. Waits for DB to be ready
+    3. Installs Python deps (pip install -r requirements.txt)
+    4. Starts FastAPI on port 4445
+    5. Installs Node deps (npm install)
+    6. Starts React on port 4444
+    7. Ctrl+C stops everything cleanly
+
+
+──────────────────────────────────────────
+4. MANUAL START (if you prefer separate terminals)
+──────────────────────────────────────────
+  Terminal 1 — Database:
+    docker compose up postgres
+
+  Terminal 2 — Backend:
+    cd backend
+    pip install -r requirements.txt
+    uvicorn main:app --reload --port 4445
+
+  Terminal 3 — Frontend:
+    cd frontend
+    npm install
+    npm run dev
+    # runs on port 4444 automatically
+
+
+──────────────────────────────────────────
+5. FIRST USE (in order)
+──────────────────────────────────────────
+  1. Open http://localhost:4444/profile
+  2. Fill in name, role, skills, experience
+  3. (Optional) Upload resume PDF — auto-extracts skills
+  4. Click "Connect Gmail" — approve OAuth in browser
+  5. Dashboard → "Sync Now" — pulls Gmail history
+  6. Jobs → "Search Now" — fetches and scores jobs
+
+
+──────────────────────────────────────────
+6. JOB SOURCES
+──────────────────────────────────────────
+  Free (no key needed):
+    - Remotive       (remote-first jobs)
+    - Arbeitnow      (EU/global remote)
+    - Greenhouse     (direct API, ~150 companies)
+    - Lever          (direct API, ~150 companies)
+    - Ashby          (direct API, ~150 companies)
+    - Workday        (via DuckDuckGo search)
+
+  Needs API key (RAPIDAPI_KEY in .env):
+    - JSearch        (broad aggregator via RapidAPI, free tier available)
+
+
+──────────────────────────────────────────
+7. LLM PROVIDERS
+──────────────────────────────────────────
+  Set LLM_PROVIDER in .env to one of:
+    gemini     → needs GEMINI_API_KEY     (model: gemini-1.5-flash)
+    openai     → needs OPENAI_API_KEY     (model: gpt-4o-mini)
+    anthropic  → needs ANTHROPIC_API_KEY  (model: claude-3-5-haiku)
+
+
+──────────────────────────────────────────
+8. GMAIL OAUTH SETUP (one-time)
+──────────────────────────────────────────
+  1. Go to https://console.cloud.google.com
+  2. Create project → Enable Gmail API
+  3. Credentials → Create OAuth 2.0 Client ID (Web application)
+  4. Add redirect URI: http://localhost:4445/auth/gmail/callback
+  5. Copy Client ID + Secret into .env
+  6. Profile page → Connect Gmail
+
+
+──────────────────────────────────────────
+9. USEFUL COMMANDS
+──────────────────────────────────────────
+  Check DB is running:
+    docker compose ps
+
+  Stop DB:
+    docker compose stop
+
+  Wipe DB and start fresh:
+    docker compose down -v
+    docker compose up -d postgres
+
+  View backend logs (if running manually):
+    uvicorn main:app --reload --port 4445 --log-level info
+
+  Trigger sync manually (without UI):
+    curl -X POST http://localhost:4445/api/gmail/sync
+    curl -X POST http://localhost:4445/api/search/trigger
+
+  Force reinstall Python dependencies (e.g. after adding a new package):
+    rm .req_hash
+    ./start.sh
+
+
+──────────────────────────────────────────
+10. FILES THAT MATTER
+──────────────────────────────────────────
+  .env                          — your config (never commit this)
+  backend/gmail_token.json      — Gmail OAuth tokens (auto-created, never commit)
+  backend/llm_service.py        — all LLM calls go through here
+  backend/services/job_boards_ats.py  — add company slugs here to expand ATS coverage
+  backend/agents/gmail_agent.py — Gmail sync logic
+  backend/agents/job_search_agent.py  — job search orchestration
+
+
+──────────────────────────────────────────
+11. PROBLEMS WE HIT AND HOW WE FIXED THEM
+──────────────────────────────────────────
+
+  PROBLEM: Port 5432 already in use — Docker PostgreSQL fails to start
+  CAUSE:   macOS ships with a native PostgreSQL that holds port 5432.
+  FIX:     docker-compose.yml maps host port 5431 to container port 5432.
+           DATABASE_URL in .env uses port 5431:
+             postgresql://jobcrm:jobcrm@localhost:5431/jobcrm
+
+  ---
+
+  PROBLEM: pip ResolutionImpossible — LangChain dependency conflict
+  CAUSE:   requirements.txt used exact pins (==) which pip could not
+           satisfy together with LangChain's own transitive deps.
+  FIX:     Changed all pins to minimum versions (>=).
+           Also: start.sh creates a venv first (modern pip inside venv
+           handles resolution better than system pip).
+
+  ---
+
+  PROBLEM: Backend not starting — dependencies not installed
+  CAUSE:   The pip install line in start.sh was accidentally commented out.
+  FIX:     Uncommented it and moved it before `cd backend`.
+           Now start.sh runs: pip install --upgrade pip && pip install -r requirements.txt
+           (skipped automatically if requirements.txt has not changed, via .req_hash)
+
+  ---
+
+  PROBLEM: Gmail OAuth 403 access_denied
+  CAUSE:   Google app was in "Testing" mode and the Gmail account was not
+           added as a test user.
+  FIX:     Google Cloud Console > APIs & Services > OAuth consent screen
+           > Audience > Test users > Add: satulurideepak4@gmail.com
+
+  ---
+
+  PROBLEM: Gmail OAuth callback goes to localhost:8000 (connection refused)
+  CAUSE:   The redirect URI registered in Google Cloud Console still pointed
+           to the old port 8000 from before we moved the backend to 4445.
+  FIX:     Google Cloud Console > Credentials > OAuth 2.0 Client
+           > Authorized redirect URIs > change to:
+             http://localhost:4445/auth/gmail/callback
+           Also update GMAIL_REDIRECT_URI in .env to match.
+
+  ---
+
+  PROBLEM: Job search fetching very few results
+  CAUSE 1: Remotive limit was only 20 per query. Arbeitnow only fetched
+           3 pages. JSearch had no remote filter.
+  FIX 1:   Remotive limit raised to 100. Arbeitnow pages raised to 7.
+           JSearch now passes remote_jobs_only=true and 3 pages.
+
+  CAUSE 2: ATS boards (Greenhouse, Lever, Ashby) filtered by description
+           but listing-level APIs return empty descriptions — almost
+           everything was being silently dropped.
+  FIX 2:   _is_relevant() in job_boards_ats.py now checks title first.
+           A title match alone is enough to pass; description is only
+           checked as a fallback when it is non-empty.
+
+  ---
+
+  PROBLEM: Workday agent crash — "Could not import ddgs python package"
+  CAUSE:   The DuckDuckGo search package was renamed from
+           duckduckgo-search to ddgs starting at version 7.
+  FIX:     requirements.txt changed from `duckduckgo-search>=6.0.0`
+           to `ddgs>=7.0.0`.
+           After changing requirements.txt, force reinstall:
+             rm .req_hash && ./start.sh
+
+  ---
+
+  PROBLEM: Scoring 4000+ jobs took 30+ minutes
+  CAUSE:   Every job was sent to the LLM one by one during the search.
+  FIX:     Two-stage system. Search now runs an instant local keyword
+           filter (no LLM). UI shows results immediately. An optional
+           "Score with AI" button in the Jobs page triggers LLM batch
+           scoring (20 jobs per call) in the background.
