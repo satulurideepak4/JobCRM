@@ -142,23 +142,30 @@ def _dedup_key(company_name: str, title: str) -> str:
     return hashlib.sha256(raw.encode()).hexdigest()
 
 
-def _is_relevant(title: str, description: str, keywords: List[str]) -> bool:
+def _is_relevant(title: str, description: str, keywords: List[str],
+                 role_keywords: List[str] = None) -> bool:
     """
-    Title match is sufficient — ATS listing APIs often return empty descriptions.
-    Description is checked as a bonus to avoid false negatives.
+    Title-primary relevance check. ATS listing APIs often return empty descriptions
+    so a title match alone is sufficient.
+    Passes if:
+      - Any keyword (role or skill) appears in the title, OR
+      - At least 2 keywords appear in description (when non-empty)
     """
     title_lower = title.lower()
-    # Title match is enough on its own
-    if any(kw.lower() in title_lower for kw in keywords):
+    all_keywords = list(keywords)
+    if role_keywords:
+        all_keywords = list(role_keywords) + all_keywords
+
+    if any(kw.lower() in title_lower for kw in all_keywords):
         return True
-    # Fall back to description if it's non-empty
     if description:
         desc_lower = description.lower()
-        return any(kw.lower() in desc_lower for kw in keywords)
+        hits = sum(1 for kw in all_keywords if kw.lower() in desc_lower)
+        return hits >= 2
     return False
 
 
-async def _fetch_greenhouse_company(client: httpx.AsyncClient, slug: str, keywords: List[str]) -> List[Dict]:
+async def _fetch_greenhouse_company(client: httpx.AsyncClient, slug: str, keywords: List[str], role_keywords: List[str] = None) -> List[Dict]:
     try:
         resp = await client.get(
             f"https://boards-api.greenhouse.io/v1/boards/{slug}/jobs",
@@ -177,7 +184,7 @@ async def _fetch_greenhouse_company(client: httpx.AsyncClient, slug: str, keywor
                 break
             if not _is_allowed_location(location):
                 continue
-            if not _is_relevant(title, job.get("content", ""), keywords):
+            if not _is_relevant(title, job.get("content", ""), keywords, role_keywords):
                 continue
             jobs.append({
                 "title": title,
@@ -197,7 +204,7 @@ async def _fetch_greenhouse_company(client: httpx.AsyncClient, slug: str, keywor
         return []
 
 
-async def _fetch_lever_company(client: httpx.AsyncClient, slug: str, keywords: List[str]) -> List[Dict]:
+async def _fetch_lever_company(client: httpx.AsyncClient, slug: str, keywords: List[str], role_keywords: List[str] = None) -> List[Dict]:
     try:
         resp = await client.get(
             f"https://api.lever.co/v0/postings/{slug}",
@@ -217,7 +224,7 @@ async def _fetch_lever_company(client: httpx.AsyncClient, slug: str, keywords: L
             description = job.get("descriptionPlain", "") or job.get("description", "")
             if not _is_allowed_location(location):
                 continue
-            if not _is_relevant(title, description, keywords):
+            if not _is_relevant(title, description, keywords, role_keywords):
                 continue
             jobs.append({
                 "title": title,
@@ -237,7 +244,7 @@ async def _fetch_lever_company(client: httpx.AsyncClient, slug: str, keywords: L
         return []
 
 
-async def _fetch_ashby_company(client: httpx.AsyncClient, slug: str, keywords: List[str]) -> List[Dict]:
+async def _fetch_ashby_company(client: httpx.AsyncClient, slug: str, keywords: List[str], role_keywords: List[str] = None) -> List[Dict]:
     try:
         resp = await client.post(
             "https://jobs.ashbyhq.com/api/non-user-facing/job-board/listed-jobs",
@@ -254,7 +261,7 @@ async def _fetch_ashby_company(client: httpx.AsyncClient, slug: str, keywords: L
             location = job.get("locationName", "Remote")
             if not _is_allowed_location(location):
                 continue
-            if not _is_relevant(title, job.get("descriptionSocial", ""), keywords):
+            if not _is_relevant(title, job.get("descriptionSocial", ""), keywords, role_keywords):
                 continue
             jobs.append({
                 "title": title,
@@ -279,8 +286,15 @@ async def fetch_ats_jobs(profile: dict) -> List[Dict]:
     Fetch jobs from Greenhouse, Lever, and Ashby for all known companies.
     Filters locally by profile keywords. No API keys required.
     """
-    keywords = profile.get("skills", []) + [profile.get("role", "")]
+    role = (profile.get("role") or "").lower()
+    skills = [s.lower().strip() for s in (profile.get("skills") or []) if s]
+    keywords = skills + ([role] if role else [])
     keywords = [k for k in keywords if k]
+
+    # Role keywords: meaningful words only
+    stop_words = {"and", "or", "the", "for", "with", "from", "senior", "junior",
+                  "lead", "staff", "principal", "associate", "remote"}
+    role_keywords = [w for w in role.split() if len(w) > 2 and w not in stop_words]
 
     if not keywords:
         return []
@@ -291,7 +305,7 @@ async def fetch_ats_jobs(profile: dict) -> List[Dict]:
     limits = httpx.Limits(max_connections=30, max_keepalive_connections=20)
     async with httpx.AsyncClient(limits=limits) as client:
         # Greenhouse — batch all company requests concurrently
-        gh_tasks = [_fetch_greenhouse_company(client, slug, keywords) for slug in GREENHOUSE_SLUGS]
+        gh_tasks = [_fetch_greenhouse_company(client, slug, keywords, role_keywords) for slug in GREENHOUSE_SLUGS]
         gh_results = await asyncio.gather(*gh_tasks, return_exceptions=True)
         for result in gh_results:
             if isinstance(result, list):
@@ -302,7 +316,7 @@ async def fetch_ats_jobs(profile: dict) -> List[Dict]:
                         all_jobs.append(job)
 
         # Lever
-        lever_tasks = [_fetch_lever_company(client, slug, keywords) for slug in LEVER_SLUGS]
+        lever_tasks = [_fetch_lever_company(client, slug, keywords, role_keywords) for slug in LEVER_SLUGS]
         lever_results = await asyncio.gather(*lever_tasks, return_exceptions=True)
         for result in lever_results:
             if isinstance(result, list):
@@ -313,7 +327,7 @@ async def fetch_ats_jobs(profile: dict) -> List[Dict]:
                         all_jobs.append(job)
 
         # Ashby
-        ashby_tasks = [_fetch_ashby_company(client, slug, keywords) for slug in ASHBY_SLUGS]
+        ashby_tasks = [_fetch_ashby_company(client, slug, keywords, role_keywords) for slug in ASHBY_SLUGS]
         ashby_results = await asyncio.gather(*ashby_tasks, return_exceptions=True)
         for result in ashby_results:
             if isinstance(result, list):

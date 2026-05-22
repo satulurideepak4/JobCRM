@@ -155,16 +155,18 @@ async def run_job_search():
         _search_progress = "fetching from job boards and ATS platforms"
         from services.job_boards import fetch_all_jobs
         from services.job_boards_ats import fetch_ats_jobs
+        from services.job_boards_hn import fetch_hn_hiring
 
-        api_jobs, ats_jobs, workday_jobs = await asyncio.gather(
+        api_jobs, ats_jobs, workday_jobs, hn_jobs = await asyncio.gather(
             fetch_all_jobs(profile, queries),
             fetch_ats_jobs(profile),
             _run_workday_search(profile),
+            fetch_hn_hiring(profile),
             return_exceptions=True,
         )
 
         all_jobs = []
-        for source in [api_jobs, ats_jobs, workday_jobs]:
+        for source in [api_jobs, ats_jobs, workday_jobs, hn_jobs]:
             if isinstance(source, list):
                 all_jobs.extend(source)
             elif isinstance(source, Exception):

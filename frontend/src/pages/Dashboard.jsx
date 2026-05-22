@@ -24,7 +24,7 @@ export default function Dashboard() {
     onSuccess: () => setTimeout(() => qc.invalidateQueries({ queryKey: ['dashboard'] }), 2000),
   })
 
-  if (isLoading) return <div style={{ color: '#64748b', padding: '40px' }}>Loading dashboard...</div>
+  if (isLoading) return <div style={{ color: 'var(--text-3)', padding: '40px' }}>Loading dashboard...</div>
   if (error) return <div style={{ color: '#ef4444', padding: '40px' }}>Failed to load dashboard. Is the backend running?</div>
 
   const stats = data?.stats || {}
@@ -36,10 +36,10 @@ export default function Dashboard() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '28px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <h1 style={{ fontSize: '24px', fontWeight: '700', color: '#e2e8f0' }}>Dashboard</h1>
+        <h1 style={{ fontSize: '24px', fontWeight: '700', color: 'var(--text)' }}>Dashboard</h1>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           {data?.last_synced_at && (
-            <span style={{ fontSize: '12px', color: '#64748b', display: 'flex', alignItems: 'center', gap: '4px' }}>
+            <span style={{ fontSize: '12px', color: 'var(--text-3)', display: 'flex', alignItems: 'center', gap: '4px' }}>
               <Clock size={12} /> Synced {new Date(data.last_synced_at).toLocaleString()}
             </span>
           )}
@@ -74,7 +74,7 @@ export default function Dashboard() {
 
       {/* Kanban */}
       <section>
-        <h2 style={{ fontSize: '16px', fontWeight: '600', color: '#94a3b8', marginBottom: '14px' }}>Pipeline</h2>
+        <h2 style={{ fontSize: '16px', fontWeight: '600', color: 'var(--text-3)', marginBottom: '14px' }}>Pipeline</h2>
         <KanbanBoard kanban={kanban} />
       </section>
 
@@ -82,22 +82,22 @@ export default function Dashboard() {
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '20px' }}>
         {/* Today's jobs */}
         <section style={{ gridColumn: 'span 1' }}>
-          <h2 style={{ fontSize: '16px', fontWeight: '600', color: '#94a3b8', marginBottom: '12px' }}>Today's Matches</h2>
+          <h2 style={{ fontSize: '16px', fontWeight: '600', color: 'var(--text-3)', marginBottom: '12px' }}>Today's Matches</h2>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
             {todaysJobs.length === 0 ? (
-              <div style={{ color: '#475569', fontSize: '13px' }}>No jobs yet — trigger a search</div>
+              <div style={{ color: 'var(--text-2)', fontSize: '13px' }}>No jobs yet — trigger a search</div>
             ) : todaysJobs.map(job => (
               <div key={job.id} style={{
-                background: '#1e293b', border: '1px solid #334155', borderRadius: '8px', padding: '12px',
+                background: 'var(--card)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px', boxShadow: 'var(--shadow)',
               }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <div>
-                    <div style={{ fontSize: '13px', fontWeight: '600', color: '#e2e8f0' }}>{job.title}</div>
-                    <div style={{ fontSize: '12px', color: '#64748b' }}>{job.company_name}</div>
+                    <div style={{ fontSize: '13px', fontWeight: '600', color: 'var(--text)' }}>{job.title}</div>
+                    <div style={{ fontSize: '12px', color: 'var(--text-3)' }}>{job.company_name}</div>
                   </div>
                   <div style={{
                     fontSize: '14px', fontWeight: '700',
-                    color: job.match_score >= 80 ? '#22c55e' : job.match_score >= 60 ? '#f59e0b' : '#64748b',
+                    color: job.match_score >= 80 ? '#22c55e' : job.match_score >= 60 ? '#f59e0b' : 'var(--text-3)',
                   }}>{job.match_score}</div>
                 </div>
               </div>
@@ -107,20 +107,20 @@ export default function Dashboard() {
 
         {/* Pending follow-ups */}
         <section>
-          <h2 style={{ fontSize: '16px', fontWeight: '600', color: '#94a3b8', marginBottom: '12px' }}>Pending Follow-ups</h2>
+          <h2 style={{ fontSize: '16px', fontWeight: '600', color: 'var(--text-3)', marginBottom: '12px' }}>Pending Follow-ups</h2>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
             {pendingFollowups.length === 0 ? (
-              <div style={{ color: '#475569', fontSize: '13px' }}>No follow-ups pending</div>
+              <div style={{ color: 'var(--text-2)', fontSize: '13px' }}>No follow-ups pending</div>
             ) : pendingFollowups.map(fu => (
               <div key={fu.id} style={{
-                background: '#1e293b',
-                border: `1px solid ${fu.is_overdue ? '#f59e0b' : '#334155'}`,
+                background: 'var(--card)',
+                border: `1px solid ${fu.is_overdue ? '#f59e0b55' : 'var(--border)'}`,
                 borderRadius: '8px', padding: '12px',
               }}>
-                <div style={{ fontSize: '13px', fontWeight: '600', color: fu.is_overdue ? '#f59e0b' : '#e2e8f0' }}>
+                <div style={{ fontSize: '13px', fontWeight: '600', color: fu.is_overdue ? '#f59e0b' : 'var(--text)' }}>
                   {fu.company_name}
                 </div>
-                <div style={{ fontSize: '12px', color: '#64748b' }}>{fu.note}</div>
+                <div style={{ fontSize: '12px', color: 'var(--text-3)' }}>{fu.note}</div>
               </div>
             ))}
           </div>
@@ -128,17 +128,17 @@ export default function Dashboard() {
 
         {/* Recent activity */}
         <section>
-          <h2 style={{ fontSize: '16px', fontWeight: '600', color: '#94a3b8', marginBottom: '12px' }}>Recent Activity</h2>
+          <h2 style={{ fontSize: '16px', fontWeight: '600', color: 'var(--text-3)', marginBottom: '12px' }}>Recent Activity</h2>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
             {recentActivity.length === 0 ? (
-              <div style={{ color: '#475569', fontSize: '13px' }}>No activity yet</div>
+              <div style={{ color: 'var(--text-2)', fontSize: '13px' }}>No activity yet</div>
             ) : recentActivity.map((a, i) => (
-              <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid #1e293b' }}>
+              <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid var(--border-light)' }}>
                 <div>
-                  <span style={{ fontSize: '13px', color: '#e2e8f0' }}>{a.company}</span>
-                  <span style={{ fontSize: '12px', color: '#64748b', marginLeft: '8px' }}>{a.status.replace(/_/g, ' ')}</span>
+                  <span style={{ fontSize: '13px', color: 'var(--text)' }}>{a.company}</span>
+                  <span style={{ fontSize: '12px', color: 'var(--text-3)', marginLeft: '8px' }}>{a.status.replace(/_/g, ' ')}</span>
                 </div>
-                <div style={{ fontSize: '11px', color: '#475569' }}>
+                <div style={{ fontSize: '11px', color: 'var(--text-2)' }}>
                   {a.updated_at ? new Date(a.updated_at).toLocaleDateString() : ''}
                 </div>
               </div>

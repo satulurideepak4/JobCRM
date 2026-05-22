@@ -6,10 +6,43 @@
     <title>JobCRM</title>
     <style>
       * { box-sizing: border-box; margin: 0; padding: 0; }
-      body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f172a; color: #e2e8f0; }
-      ::-webkit-scrollbar { width: 6px; }
-      ::-webkit-scrollbar-track { background: #1e293b; }
-      ::-webkit-scrollbar-thumb { background: #475569; border-radius: 3px; }
+      body { font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text); transition: background 0.2s, color 0.2s; }
+      input, select, textarea { outline: none; }
+      button { transition: opacity 0.15s, background 0.15s; }
+      ::-webkit-scrollbar { width: 6px; height: 6px; }
+      ::-webkit-scrollbar-track { background: var(--border-light); }
+      ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+      :root {
+        --bg:           #f8fafc;
+        --card:         #ffffff;
+        --card-hover:   #f8fafc;
+        --border:       #e2e8f0;
+        --border-light: #f1f5f9;
+        --input:        #f8fafc;
+        --text:         #0f172a;
+        --text-2:       #475569;
+        --text-3:       #64748b;
+        --text-4:       #94a3b8;
+        --shadow:       0 1px 3px rgba(0,0,0,0.06);
+        --shadow-md:    0 4px 16px rgba(0,0,0,0.08);
+        --shadow-lg:    0 8px 32px rgba(0,0,0,0.12);
+      }
+      [data-theme="dark"] {
+        --bg:           #0f172a;
+        --card:         #1e293b;
+        --card-hover:   #263244;
+        --border:       #334155;
+        --border-light: #1e293b;
+        --input:        #0f172a;
+        --text:         #e2e8f0;
+        --text-2:       #94a3b8;
+        --text-3:       #94a3b8;
+        --text-4:       #64748b;
+        --shadow:       0 1px 3px rgba(0,0,0,0.4);
+        --shadow-md:    0 4px 16px rgba(0,0,0,0.5);
+        --shadow-lg:    0 8px 32px rgba(0,0,0,0.6);
+      }
     </style>
   </head>
   <body>

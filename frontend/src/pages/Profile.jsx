@@ -86,15 +86,15 @@ export default function Profile() {
   }
 
   const inputStyle = {
-    width: '100%', padding: '8px 12px', background: '#0f172a',
-    border: '1px solid #334155', borderRadius: '6px', color: '#e2e8f0', fontSize: '14px',
+    width: '100%', padding: '8px 12px', background: 'var(--input)',
+    border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '14px',
   }
-  const labelStyle = { fontSize: '12px', color: '#94a3b8', display: 'block', marginBottom: '4px' }
+  const labelStyle = { fontSize: '12px', color: 'var(--text-3)', display: 'block', marginBottom: '4px' }
   const sectionStyle = { marginBottom: '20px' }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '28px', maxWidth: '640px' }}>
-      <h1 style={{ fontSize: '24px', fontWeight: '700', color: '#e2e8f0' }}>Profile</h1>
+      <h1 style={{ fontSize: '24px', fontWeight: '700', color: 'var(--text)' }}>Profile</h1>
 
       {gmailStatus === 'connected' && (
         <div style={{ padding: '12px 16px', background: '#22c55e22', border: '1px solid #22c55e44', borderRadius: '8px', color: '#22c55e', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -108,17 +108,17 @@ export default function Profile() {
       )}
 
       {/* Gmail connection */}
-      <div style={{ background: '#1e293b', border: '1px solid #334155', borderRadius: '12px', padding: '20px' }}>
-        <h2 style={{ fontSize: '16px', fontWeight: '600', color: '#e2e8f0', marginBottom: '12px' }}>Gmail Connection</h2>
+      <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: '12px', padding: '20px', boxShadow: 'var(--shadow)' }}>
+        <h2 style={{ fontSize: '16px', fontWeight: '600', color: 'var(--text)', marginBottom: '12px' }}>Gmail Connection</h2>
         {gmailData?.connected ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
             <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#22c55e' }} />
-            <span style={{ fontSize: '14px', color: '#94a3b8' }}>Connected as {gmailData.email}</span>
+            <span style={{ fontSize: '14px', color: 'var(--text-4)' }}>Connected as {gmailData.email}</span>
           </div>
         ) : (
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#64748b' }} />
-            <span style={{ fontSize: '14px', color: '#64748b' }}>Not connected</span>
+            <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--text-3)' }} />
+            <span style={{ fontSize: '14px', color: 'var(--text-3)' }}>Not connected</span>
             <a
               href="http://localhost:4445/auth/gmail"
               style={{ padding: '7px 14px', borderRadius: '6px', background: '#6366f1', color: '#fff', textDecoration: 'none', fontSize: '13px' }}
@@ -130,17 +130,17 @@ export default function Profile() {
       </div>
 
       {/* LLM Provider */}
-      <div style={{ background: '#1e293b', border: '1px solid #334155', borderRadius: '12px', padding: '20px' }}>
-        <h2 style={{ fontSize: '16px', fontWeight: '600', color: '#e2e8f0', marginBottom: '8px' }}>LLM Provider</h2>
-        <div style={{ fontSize: '14px', color: '#94a3b8' }}>
+      <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: '12px', padding: '20px', boxShadow: 'var(--shadow)' }}>
+        <h2 style={{ fontSize: '16px', fontWeight: '600', color: 'var(--text)', marginBottom: '8px' }}>LLM Provider</h2>
+        <div style={{ fontSize: '14px', color: 'var(--text-4)' }}>
           Active provider: <span style={{ color: '#6366f1', fontWeight: '600' }}>{data?.llm_provider || 'gemini'}</span>
-          <span style={{ fontSize: '12px', color: '#475569', marginLeft: '8px' }}>(set via LLM_PROVIDER env var)</span>
+          <span style={{ fontSize: '12px', color: 'var(--text-2)', marginLeft: '8px' }}>(set via LLM_PROVIDER env var)</span>
         </div>
       </div>
 
       {/* Profile form */}
-      <div style={{ background: '#1e293b', border: '1px solid #334155', borderRadius: '12px', padding: '24px' }}>
-        <h2 style={{ fontSize: '16px', fontWeight: '600', color: '#e2e8f0', marginBottom: '20px' }}>Personal Info</h2>
+      <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: '12px', padding: '24px', boxShadow: 'var(--shadow)' }}>
+        <h2 style={{ fontSize: '16px', fontWeight: '600', color: 'var(--text)', marginBottom: '20px' }}>Personal Info</h2>
 
         <div style={sectionStyle}>
           <label style={labelStyle}>Full Name</label>
@@ -179,8 +179,8 @@ export default function Profile() {
           </div>
         </div>
 
-        <div style={{ ...sectionStyle, background: '#0f172a', borderRadius: '8px', padding: '16px' }}>
-          <label style={{ ...labelStyle, marginBottom: '12px', fontSize: '13px', color: '#64748b' }}>Preferences</label>
+        <div style={{ ...sectionStyle, background: 'var(--bg)', borderRadius: '8px', padding: '16px', border: '1px solid var(--border)' }}>
+          <label style={{ ...labelStyle, marginBottom: '12px', fontSize: '13px' }}>Preferences</label>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px' }}>
             <input
               type="checkbox"
@@ -189,7 +189,7 @@ export default function Profile() {
               onChange={e => setForm(f => ({ ...f, preferences: { ...f.preferences, remote_only: e.target.checked } }))}
               style={{ accentColor: '#6366f1' }}
             />
-            <label htmlFor="remote" style={{ fontSize: '14px', color: '#94a3b8', cursor: 'pointer' }}>Remote only</label>
+            <label htmlFor="remote" style={{ fontSize: '14px', color: 'var(--text-4)', cursor: 'pointer' }}>Remote only</label>
           </div>
           <div style={{ marginBottom: '10px' }}>
             <label style={labelStyle}>Preferred Salary</label>
@@ -226,19 +226,19 @@ export default function Profile() {
       </div>
 
       {/* Resume upload */}
-      <div style={{ background: '#1e293b', border: '1px solid #334155', borderRadius: '12px', padding: '24px' }}>
-        <h2 style={{ fontSize: '16px', fontWeight: '600', color: '#e2e8f0', marginBottom: '16px' }}>Resume</h2>
+      <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: '12px', padding: '24px', boxShadow: 'var(--shadow)' }}>
+        <h2 style={{ fontSize: '16px', fontWeight: '600', color: 'var(--text)', marginBottom: '16px' }}>Resume</h2>
         <label style={{
           display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-          padding: '32px', border: '2px dashed #334155', borderRadius: '8px',
-          cursor: 'pointer', color: '#64748b', gap: '8px',
-          background: uploading ? '#0f172a' : 'transparent',
+          padding: '32px', border: '2px dashed var(--border)', borderRadius: '8px',
+          cursor: 'pointer', color: 'var(--text-3)', gap: '8px',
+          background: uploading ? 'var(--bg)' : 'var(--bg)',
         }}>
           <Upload size={24} color="#6366f1" />
-          <span style={{ fontSize: '14px', color: '#94a3b8' }}>
+          <span style={{ fontSize: '14px', color: 'var(--text-4)' }}>
             {uploading ? 'Parsing resume...' : 'Drop PDF or click to upload'}
           </span>
-          <span style={{ fontSize: '12px' }}>Skills and experience will be auto-extracted</span>
+          <span style={{ fontSize: '12px', color: 'var(--text-3)' }}>Skills and experience will be auto-extracted</span>
           <input type="file" accept=".pdf" onChange={handleResumeUpload} style={{ display: 'none' }} disabled={uploading} />
         </label>
         {uploadResult && (
@@ -254,7 +254,7 @@ export default function Profile() {
           </div>
         )}
         {data?.has_resume && !uploadResult && (
-          <div style={{ marginTop: '8px', fontSize: '12px', color: '#64748b', display: 'flex', alignItems: 'center', gap: '4px' }}>
+          <div style={{ marginTop: '8px', fontSize: '12px', color: 'var(--text-3)', display: 'flex', alignItems: 'center', gap: '4px' }}>
             <Check size={12} color="#22c55e" /> Resume on file
           </div>
         )}

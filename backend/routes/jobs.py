@@ -191,6 +191,61 @@ async def _run_ai_scoring(job_ids: list, profile: dict):
         _scoring_running = False
 
 
+@router.post("/jobs/clean")
+async def clean_irrelevant_jobs(db: Session = Depends(get_db)):
+    """
+    Re-runs local_filter against the current profile on all 'new' unscored jobs.
+    Deletes jobs that no longer pass — lets the user start fresh after
+    tightening filter settings.
+    """
+    from models import Profile
+    profile_record = db.query(Profile).first()
+    if not profile_record:
+        return {"data": None, "error": "No profile set up", "status": 400}
+
+    from services.scorer import local_filter
+
+    # Only clean unscored 'new' jobs (match_score == 0)
+    candidates = db.query(Job).filter(
+        Job.status == JobStatus.new,
+        Job.match_score == 0,
+    ).all()
+
+    if not candidates:
+        return {"data": {"deleted": 0, "message": "Nothing to clean"}, "error": None, "status": 200}
+
+    profile = {
+        "role": profile_record.role,
+        "skills": profile_record.skills or [],
+        "experience_years": profile_record.experience_years or 0,
+        "preferences": profile_record.preferences or {},
+    }
+
+    # Convert ORM objects to dicts for local_filter
+    job_dicts = [
+        {
+            "id": j.id, "title": j.title, "description": j.description or "",
+            "location": j.location or "", "tags": j.tags or [],
+            "salary_range": j.salary_range, "company_website": j.company_website,
+        }
+        for j in candidates
+    ]
+
+    passing_ids = {jd["id"] for jd in local_filter(job_dicts, profile)}
+    to_delete = [j for j in candidates if j.id not in passing_ids]
+
+    for job in to_delete:
+        db.delete(job)
+    db.commit()
+
+    return {
+        "data": {"deleted": len(to_delete), "kept": len(passing_ids),
+                 "message": f"Removed {len(to_delete)} irrelevant jobs"},
+        "error": None,
+        "status": 200,
+    }
+
+
 @router.get("/jobs/score/status")
 async def ai_scoring_status():
     return {

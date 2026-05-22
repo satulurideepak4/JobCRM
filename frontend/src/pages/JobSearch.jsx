@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Search, Loader, Sparkles, CheckCircle } from 'lucide-react'
+import { Search, Loader, Sparkles, CheckCircle, X } from 'lucide-react'
 import api from '../api/client'
 import JobCard from '../components/JobCard'
 
@@ -35,24 +35,29 @@ function DraftEmailModal({ job, onClose }) {
   }
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: '#00000088', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 }}>
-      <div style={{ background: '#1e293b', border: '1px solid #334155', borderRadius: '12px', padding: '24px', width: '540px', maxHeight: '80vh', overflow: 'auto' }}>
-        <h3 style={{ color: '#e2e8f0', marginBottom: '16px' }}>Cold Email Draft — {job.company_name}</h3>
+    <div style={{ position: 'fixed', inset: 0, background: '#00000055', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 }}>
+      <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: '12px', padding: '24px', width: '540px', maxHeight: '80vh', overflow: 'auto', boxShadow: 'var(--shadow-lg)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+          <h3 style={{ color: 'var(--text)', fontWeight: '700', fontSize: '16px' }}>Cold Email — {job.company_name}</h3>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-4)', padding: '4px' }}><X size={16} /></button>
+        </div>
         {loading ? (
-          <div style={{ color: '#64748b', textAlign: 'center', padding: '24px' }}>Generating draft...</div>
+          <div style={{ color: 'var(--text-4)', textAlign: 'center', padding: '32px', display: 'flex', alignItems: 'center', gap: '8px', justifyContent: 'center' }}>
+            <Loader size={16} /> Generating draft...
+          </div>
         ) : draft ? (
           <>
             <div style={{ marginBottom: '12px' }}>
-              <div style={{ fontSize: '12px', color: '#64748b', marginBottom: '4px' }}>Subject</div>
-              <div style={{ padding: '10px 12px', background: '#0f172a', borderRadius: '6px', fontSize: '14px', color: '#e2e8f0' }}>{draft.subject}</div>
+              <div style={{ fontSize: '11px', color: 'var(--text-4)', marginBottom: '4px', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Subject</div>
+              <div style={{ padding: '10px 12px', background: 'var(--input)', border: '1px solid var(--border)', borderRadius: '6px', fontSize: '14px', color: 'var(--text)' }}>{draft.subject}</div>
             </div>
             <div style={{ marginBottom: '20px' }}>
-              <div style={{ fontSize: '12px', color: '#64748b', marginBottom: '4px' }}>Body</div>
-              <pre style={{ padding: '12px', background: '#0f172a', borderRadius: '6px', fontSize: '13px', color: '#94a3b8', whiteSpace: 'pre-wrap', lineHeight: '1.6', fontFamily: 'inherit' }}>{draft.body}</pre>
+              <div style={{ fontSize: '11px', color: 'var(--text-4)', marginBottom: '4px', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Body</div>
+              <pre style={{ padding: '12px', background: 'var(--input)', border: '1px solid var(--border)', borderRadius: '6px', fontSize: '13px', color: 'var(--text-2)', whiteSpace: 'pre-wrap', lineHeight: '1.6', fontFamily: 'inherit' }}>{draft.body}</pre>
             </div>
             <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
-              <button onClick={onClose} style={{ padding: '8px 16px', borderRadius: '6px', border: '1px solid #334155', background: 'transparent', color: '#94a3b8', cursor: 'pointer', fontSize: '13px' }}>Close</button>
-              <button onClick={copy} style={{ padding: '8px 16px', borderRadius: '6px', background: '#6366f1', color: '#fff', border: 'none', cursor: 'pointer', fontSize: '13px' }}>{copied ? 'Copied!' : 'Copy to Clipboard'}</button>
+              <button onClick={onClose} style={{ padding: '8px 16px', borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--card)', color: 'var(--text-3)', cursor: 'pointer', fontSize: '13px' }}>Close</button>
+              <button onClick={copy} style={{ padding: '8px 16px', borderRadius: '6px', background: '#f97316', color: '#fff', border: 'none', cursor: 'pointer', fontSize: '13px', fontWeight: '600' }}>{copied ? 'Copied!' : 'Copy to Clipboard'}</button>
             </div>
           </>
         ) : null}
@@ -61,61 +66,25 @@ function DraftEmailModal({ job, onClose }) {
   )
 }
 
-function ScoringBanner({ status, onScore }) {
-  if (!status) return null
-
-  if (status.running) {
-    const pct = status.total > 0 ? Math.round((status.done / status.total) * 100) : 0
-    return (
-      <div style={{ background: '#1e293b', border: '1px solid #6366f1', borderRadius: '10px', padding: '14px 20px', display: 'flex', alignItems: 'center', gap: '12px' }}>
-        <Loader size={16} color="#6366f1" />
-        <div style={{ flex: 1 }}>
-          <div style={{ fontSize: '13px', color: '#e2e8f0', marginBottom: '6px' }}>
-            AI scoring in progress... {status.done} of {status.total} jobs
-          </div>
-          <div style={{ height: '4px', background: '#334155', borderRadius: '2px', overflow: 'hidden' }}>
-            <div style={{ height: '100%', width: `${pct}%`, background: '#6366f1', borderRadius: '2px', transition: 'width 0.5s' }} />
-          </div>
-        </div>
-        <span style={{ fontSize: '13px', color: '#6366f1', fontWeight: '600' }}>{pct}%</span>
-      </div>
-    )
-  }
-
-  if (status.progress?.startsWith('completed')) {
-    return (
-      <div style={{ background: '#22c55e11', border: '1px solid #22c55e33', borderRadius: '10px', padding: '12px 20px', display: 'flex', alignItems: 'center', gap: '10px' }}>
-        <CheckCircle size={16} color="#22c55e" />
-        <span style={{ fontSize: '13px', color: '#22c55e' }}>AI scoring complete. Jobs are now ranked by match score.</span>
-      </div>
-    )
-  }
-
-  return (
-    <div style={{ background: '#1e293b', border: '1px solid #334155', borderRadius: '10px', padding: '14px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-      <div>
-        <div style={{ fontSize: '14px', color: '#e2e8f0', fontWeight: '500', marginBottom: '2px' }}>
-          Jobs loaded. Want AI-ranked results?
-        </div>
-        <div style={{ fontSize: '12px', color: '#64748b' }}>
-          Score with AI to get 0-100 match scores, reasons, and better ranking.
-        </div>
-      </div>
-      <button
-        onClick={onScore}
-        style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 18px', borderRadius: '8px', background: '#6366f1', color: '#fff', border: 'none', cursor: 'pointer', fontSize: '13px', fontWeight: '500', whiteSpace: 'nowrap' }}
-      >
-        <Sparkles size={14} /> Score with AI
-      </button>
-    </div>
-  )
-}
+const SOURCES = [
+  { key: 'all',        label: 'All',        color: null },
+  { key: 'remotive',   label: 'Remotive',   color: '#3b82f6' },
+  { key: 'arbeitnow',  label: 'Arbeitnow',  color: '#22c55e' },
+  { key: 'greenhouse', label: 'Greenhouse', color: '#8b5cf6' },
+  { key: 'lever',      label: 'Lever',      color: '#f59e0b' },
+  { key: 'ashby',      label: 'Ashby',      color: '#06b6d4' },
+  { key: 'jsearch',    label: 'JSearch',    color: '#eab308' },
+  { key: 'hn_hiring',  label: 'HN Hiring',  color: '#f97316' },
+  { key: 'workday',    label: 'Workday',    color: '#6366f1' },
+]
 
 export default function JobSearch() {
   const qc = useQueryClient()
   const [activeTab, setActiveTab] = useState('new')
   const [minScore, setMinScore] = useState(0)
   const [aiOnly, setAiOnly] = useState(false)
+  const [remoteOnly, setRemoteOnly] = useState(false)
+  const [sourceFilter, setSourceFilter] = useState('all')
   const [draftJob, setDraftJob] = useState(null)
 
   const { data: searchStatus } = useQuery({
@@ -155,66 +124,167 @@ export default function JobSearch() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['scoreStatus'] }),
   })
 
-  let jobs = jobsData?.jobs || []
+  const cleanMutation = useMutation({
+    mutationFn: () => api.post('/api/jobs/clean'),
+    onSuccess: (res) => {
+      qc.invalidateQueries({ queryKey: ['jobs'] })
+      alert(res.data.data?.message || 'Done')
+    },
+  })
 
-  // If AI only filter is on, show only jobs with AI scores (non-local reasons)
-  const localPrefixes = ['title_match', 'skills:', 'secondary:', 'remote', 'has_salary', 'tag_match']
+  const allJobs = jobsData?.jobs || []
+
+  const LOCAL_PREFIXES = ['title_match', 'skills:', 'secondary:', 'remote', 'has_salary', 'tag_match']
+
+  let jobs = allJobs
+  if (sourceFilter !== 'all') jobs = jobs.filter(j => j.source === sourceFilter)
+  if (remoteOnly) jobs = jobs.filter(j => (j.location || '').toLowerCase().includes('remote'))
   if (aiOnly) {
     jobs = jobs.filter(j =>
       j.match_reasons?.length > 0 &&
-      !localPrefixes.some(p => j.match_reasons[0]?.startsWith(p))
+      !LOCAL_PREFIXES.some(p => j.match_reasons[0]?.startsWith(p))
     )
   }
 
-  const showScoringBanner = jobsData?.total > 0 && !searchStatus?.running
+  const sourceCounts = SOURCES.reduce((acc, s) => {
+    acc[s.key] = s.key === 'all' ? allJobs.length : allJobs.filter(j => j.source === s.key).length
+    return acc
+  }, {})
+
+  const isSearching = searchMutation.isPending || searchStatus?.running
+  const isScoring = scoreStatus?.running
+  const showBanner = jobsData?.total > 0 && !searchStatus?.running
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
       {draftJob && <DraftEmailModal job={draftJob} onClose={() => setDraftJob(null)} />}
 
+      {/* Page header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <h1 style={{ fontSize: '24px', fontWeight: '700', color: '#e2e8f0' }}>Job Search</h1>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+        <h1 style={{ fontSize: '22px', fontWeight: '700', color: 'var(--text)' }}>Job Search</h1>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
           {searchStatus?.running && (
-            <span style={{ fontSize: '13px', color: '#6366f1', display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <Loader size={13} /> {searchStatus.progress || 'Searching...'}
+            <span style={{ fontSize: '12px', color: '#6366f1', display: 'flex', alignItems: 'center', gap: '5px' }}>
+              <Loader size={12} /> {searchStatus.progress || 'Searching...'}
             </span>
           )}
           <button
-            onClick={() => searchMutation.mutate()}
-            disabled={searchMutation.isPending || searchStatus?.running}
+            onClick={() => { if (window.confirm('Remove all unscored irrelevant jobs and start fresh?')) cleanMutation.mutate() }}
+            disabled={cleanMutation.isPending}
+            title="Re-runs relevance filter and deletes unscored jobs that no longer match your profile"
             style={{
               display: 'flex', alignItems: 'center', gap: '6px',
-              padding: '8px 16px', borderRadius: '8px', background: '#6366f1', color: '#fff',
-              border: 'none', cursor: 'pointer', fontSize: '13px',
-              opacity: (searchMutation.isPending || searchStatus?.running) ? 0.7 : 1,
+              padding: '8px 14px', borderRadius: '8px',
+              background: 'var(--card)', color: 'var(--text-3)',
+              border: '1px solid var(--border)', cursor: 'pointer', fontSize: '13px',
+              opacity: cleanMutation.isPending ? 0.6 : 1,
             }}
           >
-            <Search size={14} /> Search Now
+            🧹 Clean
+          </button>
+          <button
+            onClick={() => searchMutation.mutate()}
+            disabled={isSearching}
+            style={{
+              display: 'flex', alignItems: 'center', gap: '6px',
+              padding: '8px 16px', borderRadius: '8px',
+              background: 'var(--card)', color: 'var(--text-2)',
+              border: '1px solid var(--border)', cursor: 'pointer', fontSize: '13px',
+              fontWeight: '500', opacity: isSearching ? 0.6 : 1,
+              boxShadow: 'var(--shadow)',
+            }}
+          >
+            <Search size={13} /> Search Now
+          </button>
+          {showBanner && (
+            <button
+              onClick={() => scoreMutation.mutate()}
+              disabled={isScoring}
+              style={{
+                display: 'flex', alignItems: 'center', gap: '6px',
+                padding: '8px 16px', borderRadius: '8px',
+                background: '#f97316', color: '#fff',
+                border: 'none', cursor: 'pointer', fontSize: '13px', fontWeight: '600',
+                opacity: isScoring ? 0.7 : 1,
+              }}
+            >
+              <Sparkles size={13} />
+              {isScoring
+                ? `Scoring ${scoreStatus.done}/${scoreStatus.total}…`
+                : scoreStatus?.progress?.startsWith('completed')
+                  ? '✓ Scored'
+                  : '+ Score with AI'}
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Source filter bar */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', padding: '12px 16px', background: 'var(--card)', border: '1px solid var(--border)', borderRadius: '10px', boxShadow: 'var(--shadow)' }}>
+        <span style={{ fontSize: '10px', color: 'var(--text-4)', fontWeight: '700', letterSpacing: '0.8px', textTransform: 'uppercase', marginRight: '4px' }}>Source</span>
+        {SOURCES.map(s => {
+          const count = sourceCounts[s.key] || 0
+          if (s.key !== 'all' && count === 0) return null
+          const active = sourceFilter === s.key
+          const isAll = s.key === 'all'
+          return (
+            <button
+              key={s.key}
+              onClick={() => setSourceFilter(s.key)}
+              style={{
+                padding: '4px 11px', borderRadius: '20px', fontSize: '12px', fontWeight: '600',
+                cursor: 'pointer', border: '1.5px solid',
+                borderColor: active ? (isAll ? 'var(--text)' : s.color) : 'var(--border)',
+                background: active ? (isAll ? 'var(--text)' : s.color + '18') : 'var(--card)',
+                color: active ? (isAll ? 'var(--bg)' : s.color) : 'var(--text-3)',
+                display: 'flex', alignItems: 'center', gap: '5px',
+                transition: 'all 0.15s',
+              }}
+            >
+              {!isAll && (
+                <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: s.color, display: 'inline-block', flexShrink: 0 }} />
+              )}
+              {s.label} · {count}
+              {s.key === 'hn_hiring' && count > 0 && (
+                <span style={{ fontSize: '9px', background: '#f97316', color: '#fff', borderRadius: '4px', padding: '1px 4px', fontWeight: '700', letterSpacing: '0.3px' }}>NEW</span>
+              )}
+            </button>
+          )
+        })}
+
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <span style={{ fontSize: '10px', color: 'var(--text-4)', fontWeight: '700', letterSpacing: '0.8px', textTransform: 'uppercase' }}>Score</span>
+          <button
+            onClick={() => setAiOnly(!aiOnly)}
+            style={{
+              padding: '4px 11px', borderRadius: '20px', fontSize: '12px', fontWeight: '600',
+              cursor: 'pointer', border: '1.5px solid',
+              borderColor: aiOnly ? '#22c55e' : 'var(--border)',
+              background: aiOnly ? '#dcfce7' : 'var(--card)',
+              color: aiOnly ? '#16a34a' : 'var(--text-3)',
+              display: 'flex', alignItems: 'center', gap: '5px',
+            }}
+          >
+            <Sparkles size={11} color={aiOnly ? '#16a34a' : 'var(--text-4)'} />
+            AI scored only
           </button>
         </div>
       </div>
 
-      {/* Scoring banner */}
-      {showScoringBanner && (
-        <ScoringBanner
-          status={scoreStatus}
-          onScore={() => scoreMutation.mutate()}
-        />
-      )}
-
-      {/* Filters */}
-      <div style={{ display: 'flex', gap: '16px', alignItems: 'center', background: '#1e293b', border: '1px solid #334155', borderRadius: '10px', padding: '14px 20px', flexWrap: 'wrap' }}>
-        <div style={{ display: 'flex', gap: '8px' }}>
+      {/* Secondary filters */}
+      <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+        {/* Status tabs */}
+        <div style={{ display: 'flex', gap: '4px', background: 'var(--border-light)', padding: '3px', borderRadius: '8px' }}>
           {['new', 'saved', 'dismissed'].map(tab => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
               style={{
-                padding: '6px 14px', borderRadius: '6px', fontSize: '13px', cursor: 'pointer',
-                background: activeTab === tab ? '#6366f1' : 'transparent',
-                color: activeTab === tab ? '#fff' : '#94a3b8',
-                border: activeTab === tab ? 'none' : '1px solid #334155',
+                padding: '5px 14px', borderRadius: '6px', fontSize: '12px', fontWeight: '600', cursor: 'pointer',
+                background: activeTab === tab ? 'var(--card)' : 'transparent',
+                color: activeTab === tab ? 'var(--text)' : 'var(--text-4)',
+                border: 'none',
+                boxShadow: activeTab === tab ? 'var(--shadow)' : 'none',
               }}
             >
               {tab.charAt(0).toUpperCase() + tab.slice(1)}
@@ -222,45 +292,70 @@ export default function JobSearch() {
           ))}
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        {/* Remote only */}
+        <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '13px', color: remoteOnly ? '#16a34a' : 'var(--text-3)', fontWeight: remoteOnly ? '600' : '400', userSelect: 'none' }}>
           <input
             type="checkbox"
-            id="aiOnly"
-            checked={aiOnly}
-            onChange={e => setAiOnly(e.target.checked)}
-            style={{ accentColor: '#6366f1' }}
+            checked={remoteOnly}
+            onChange={e => setRemoteOnly(e.target.checked)}
+            style={{ accentColor: '#22c55e', width: '14px', height: '14px' }}
           />
-          <label htmlFor="aiOnly" style={{ fontSize: '13px', color: '#94a3b8', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>
-            <Sparkles size={12} color="#6366f1" /> AI scored only
-          </label>
-        </div>
+          Remote only
+        </label>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginLeft: 'auto' }}>
-          <label style={{ fontSize: '13px', color: '#94a3b8' }}>Min score: {minScore}</label>
+        {/* Min score */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: 'auto' }}>
+          <span style={{ fontSize: '12px', color: 'var(--text-4)' }}>Min score: <b style={{ color: 'var(--text)' }}>{minScore}</b></span>
           <input
             type="range" min={0} max={100} value={minScore}
             onChange={e => setMinScore(Number(e.target.value))}
-            style={{ width: '120px', accentColor: '#6366f1' }}
+            style={{ width: '100px', accentColor: '#f97316' }}
           />
         </div>
 
+        {/* Count */}
         {jobsData?.total > 0 && (
-          <span style={{ fontSize: '12px', color: '#64748b' }}>
-            {jobs.length} of {jobsData.total} jobs
+          <span style={{ fontSize: '12px', color: 'var(--text-4)' }}>
+            {jobs.length} of {jobsData.total}
           </span>
         )}
       </div>
 
+      {/* Scoring progress banner */}
+      {isScoring && (
+        <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '10px', padding: '14px 20px', display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <Loader size={15} color="#3b82f6" />
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: '13px', color: '#1e40af', marginBottom: '6px', fontWeight: '500' }}>
+              AI scoring in progress — {scoreStatus.done} of {scoreStatus.total} jobs
+            </div>
+            <div style={{ height: '4px', background: '#bfdbfe', borderRadius: '2px', overflow: 'hidden' }}>
+              <div style={{ height: '100%', width: `${Math.round((scoreStatus.done / scoreStatus.total) * 100)}%`, background: '#3b82f6', borderRadius: '2px', transition: 'width 0.5s' }} />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {scoreStatus?.progress?.startsWith('completed') && !isScoring && (
+        <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '10px', padding: '12px 20px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <CheckCircle size={15} color="#22c55e" />
+          <span style={{ fontSize: '13px', color: '#15803d', fontWeight: '500' }}>AI scoring complete — jobs ranked by match score.</span>
+        </div>
+      )}
+
+      {/* Job grid */}
       {isLoading ? (
-        <div style={{ color: '#64748b' }}>Loading jobs...</div>
+        <div style={{ color: 'var(--text-4)', textAlign: 'center', padding: '60px', fontSize: '14px' }}>Loading jobs...</div>
       ) : jobs.length === 0 ? (
-        <div style={{ color: '#475569', fontSize: '14px', textAlign: 'center', padding: '40px' }}>
+        <div style={{ color: 'var(--text-4)', fontSize: '14px', textAlign: 'center', padding: '60px 20px', background: 'var(--card)', border: '1px solid var(--border)', borderRadius: '12px' }}>
           {jobsData?.total > 0 && aiOnly
-            ? 'No AI-scored jobs yet. Click "Score with AI" above.'
-            : 'No jobs found. Click "Search Now" to fetch jobs.'}
+            ? 'No AI-scored jobs yet. Click "+ Score with AI" above.'
+            : activeTab !== 'new'
+              ? `No ${activeTab} jobs.`
+              : 'No jobs found. Click "Search Now" to fetch jobs.'}
         </div>
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: '16px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: '14px' }}>
           {jobs.map(job => (
             <JobCard key={job.id} job={job} onDraftEmail={setDraftJob} />
           ))}

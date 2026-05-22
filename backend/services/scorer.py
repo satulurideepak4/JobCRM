@@ -31,8 +31,12 @@ def local_filter(jobs: List[Dict], profile: Dict) -> List[Dict]:
     secondary_skills = skills[5:15]
     remote_pref = profile.get("preferences", {}).get("remote_only", False)
 
-    # Extract meaningful role keywords (ignore stop words)
-    role_keywords = [w for w in role.split() if len(w) > 3]
+    # Extract meaningful role keywords — keep 3+ char words so short roles
+    # like "ios", "sre", "dev" are included
+    stop_words = {"and", "or", "the", "for", "with", "from", "senior", "junior", "lead", "staff"}
+    role_keywords = [w for w in role.split() if len(w) > 2 and w not in stop_words]
+    if not role_keywords and role:
+        role_keywords = [role]
 
     results = []
     for job in jobs:
@@ -45,7 +49,7 @@ def local_filter(jobs: List[Dict], profile: Dict) -> List[Dict]:
         score = 0
         reasons = []
 
-        # Must have checks (3 pts each)
+        # Must-have checks (3 pts each)
         role_match = any(kw in title for kw in role_keywords)
         if role_match:
             score += 3
@@ -56,13 +60,22 @@ def local_filter(jobs: List[Dict], profile: Dict) -> List[Dict]:
             score += 3
             reasons.append(f"skills:{','.join(primary_match[:2])}")
 
+        # Hard gate: must match on role OR a primary skill — no freeloading
+        # on secondary/salary signals alone
+        if not role_match and not primary_match:
+            continue
+
         # Good to have (2 pts each)
         secondary_match = [s for s in secondary_skills if s in combined]
         if secondary_match:
             score += 2
             reasons.append(f"secondary:{','.join(secondary_match[:2])}")
 
-        if remote_pref and ("remote" in location or "remote" in combined):
+        is_remote = "remote" in location or "remote" in combined
+        if remote_pref and not is_remote:
+            # Penalise non-remote but don't hard-drop (user may still want it)
+            score -= 2
+        elif remote_pref and is_remote:
             score += 2
             reasons.append("remote")
 

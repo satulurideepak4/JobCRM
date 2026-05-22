@@ -86,8 +86,9 @@ export function useSpeechRecognition({ onFinalTranscript, silenceSeconds = 2 }) 
     }
 
     recognition.onend = () => {
-      // Auto-restart if still supposed to be listening (Chrome stops after ~60s)
-      if (shouldRestartRef.current && finalRef.current.trim() === '') {
+      // Chrome stops recognition frequently even with continuous:true — always restart
+      // unless we intentionally stopped (shouldRestartRef set to false by silence timer)
+      if (shouldRestartRef.current) {
         try { recognition.start() } catch (_) {}
       } else {
         setIsListening(false)

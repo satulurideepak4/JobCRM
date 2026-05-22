@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react'
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import Sidebar from './components/Sidebar'
 import Dashboard from './pages/Dashboard'
@@ -9,20 +10,19 @@ import Profile from './pages/Profile'
 import Interview from './pages/Interview'
 import InterviewRoom from './pages/InterviewRoom'
 
-function AppLayout() {
+function AppLayout({ isDark, toggleTheme }) {
   const location = useLocation()
-  // InterviewRoom gets full-screen treatment (no sidebar padding interference)
   const isInterviewRoom = /^\/interview\/\d+/.test(location.pathname)
 
   return (
     <div style={{ display: 'flex', minHeight: '100vh' }}>
-      <Sidebar />
+      <Sidebar isDark={isDark} toggleTheme={toggleTheme} />
       <main style={{
         flex: 1,
         padding: isInterviewRoom ? '0' : '24px',
         overflowY: 'auto',
         maxHeight: '100vh',
-        background: isInterviewRoom ? '#0f1117' : undefined,
+        background: isInterviewRoom ? '#0f1117' : 'var(--bg)',
       }}>
         <Routes>
           <Route path="/" element={<Dashboard />} />
@@ -41,9 +41,16 @@ function AppLayout() {
 }
 
 export default function App() {
+  const [isDark, setIsDark] = useState(() => localStorage.getItem('theme') === 'dark')
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light')
+    localStorage.setItem('theme', isDark ? 'dark' : 'light')
+  }, [isDark])
+
   return (
     <BrowserRouter>
-      <AppLayout />
+      <AppLayout isDark={isDark} toggleTheme={() => setIsDark(d => !d)} />
     </BrowserRouter>
   )
 }

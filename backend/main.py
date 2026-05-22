@@ -42,9 +42,30 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="JobCRM API", version="1.0.0", lifespan=lifespan)
 
+@app.middleware("http")
+async def no_cache_middleware(request: Request, call_next):
+    # Strip conditional request headers so 304s are never triggered
+    request.scope["headers"] = [
+        (k, v) for k, v in request.scope.get("headers", [])
+        if k.lower() not in (b"if-none-match", b"if-modified-since", b"if-match", b"if-unmodified-since")
+    ]
+    response = await call_next(request)
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    return response
+
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:4444"],
+    allow_origins=[
+        "http://localhost:4444",
+        "http://localhost:4445",
+        "http://localhost:4446",
+        "http://localhost:5173",
+        "http://localhost:5174",
+        "http://127.0.0.1:4444",
+        "http://127.0.0.1:5173",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

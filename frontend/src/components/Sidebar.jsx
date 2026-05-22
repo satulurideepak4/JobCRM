@@ -1,11 +1,11 @@
 import { NavLink } from 'react-router-dom'
-import { LayoutDashboard, Briefcase, Search, Mail, Bell, User, Mic } from 'lucide-react'
+import { LayoutDashboard, Briefcase, Search, Mail, Bell, User, Mic, Sun, Moon } from 'lucide-react'
 
 const links = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
   { to: '/applications', icon: Briefcase, label: 'Applications' },
   { to: '/jobs', icon: Search, label: 'Job Search' },
-  { to: '/emails', icon: Mail, label: 'Cold Emails' },
+  { to: '/emails', icon: Mail, label: 'Emails' },
   { to: '/followups', icon: Bell, label: 'Follow-ups' },
   { to: '/interview', icon: Mic, label: 'Interview' },
   { to: '/profile', icon: User, label: 'Profile' },
@@ -15,8 +15,8 @@ const styles = {
   sidebar: {
     width: '220px',
     minHeight: '100vh',
-    background: '#1e293b',
-    borderRight: '1px solid #334155',
+    background: '#0f172a',
+    borderRight: '1px solid #1e293b',
     display: 'flex',
     flexDirection: 'column',
     padding: '24px 0',
@@ -24,29 +24,18 @@ const styles = {
   },
   logo: {
     padding: '0 20px 24px',
-    borderBottom: '1px solid #334155',
+    borderBottom: '1px solid #1e293b',
     marginBottom: '16px',
   },
-  logoText: {
-    fontSize: '20px',
-    fontWeight: '700',
-    color: '#6366f1',
-    letterSpacing: '-0.5px',
-  },
-  logoSub: {
-    fontSize: '11px',
-    color: '#64748b',
-    marginTop: '2px',
-  },
-  nav: { display: 'flex', flexDirection: 'column', gap: '2px', padding: '0 12px' },
+  nav: { display: 'flex', flexDirection: 'column', gap: '2px', padding: '0 10px' },
   link: (isActive) => ({
     display: 'flex',
     alignItems: 'center',
     gap: '10px',
-    padding: '10px 12px',
+    padding: '9px 12px',
     borderRadius: '8px',
-    color: isActive ? '#e2e8f0' : '#94a3b8',
-    background: isActive ? '#334155' : 'transparent',
+    color: isActive ? '#f1f5f9' : '#64748b',
+    background: isActive ? '#1e293b' : 'transparent',
     textDecoration: 'none',
     fontSize: '14px',
     fontWeight: isActive ? '500' : '400',
@@ -54,12 +43,15 @@ const styles = {
   }),
 }
 
-export default function Sidebar() {
+export default function Sidebar({ isDark, toggleTheme }) {
   return (
     <aside style={styles.sidebar}>
       <div style={styles.logo}>
-        <div style={styles.logoText}>JobCRM</div>
-        <div style={styles.logoSub}>Local • Private • Open Source</div>
+        <div style={{ fontSize: '20px', fontWeight: '800', letterSpacing: '-0.5px' }}>
+          <span style={{ color: '#ffffff' }}>Job</span>
+          <span style={{ color: '#f97316' }}>CRM</span>
+        </div>
+        <div style={{ fontSize: '11px', color: '#334155', marginTop: '3px' }}>Local · Private · Open Source</div>
       </div>
       <nav style={styles.nav}>
         {links.map(({ to, icon: Icon, label }) => (
@@ -69,11 +61,27 @@ export default function Sidebar() {
             end={to === '/'}
             style={({ isActive }) => styles.link(isActive)}
           >
-            <Icon size={16} />
+            <Icon size={15} />
             {label}
           </NavLink>
         ))}
       </nav>
+      <div style={{ marginTop: 'auto', padding: '16px 10px', borderTop: '1px solid #1e293b' }}>
+        <button
+          onClick={toggleTheme}
+          style={{
+            width: '100%', display: 'flex', alignItems: 'center', gap: '10px',
+            padding: '9px 12px', borderRadius: '8px',
+            background: 'transparent', border: 'none', cursor: 'pointer',
+            color: '#64748b', fontSize: '14px', transition: 'color 0.15s',
+          }}
+          onMouseEnter={e => e.currentTarget.style.color = '#f1f5f9'}
+          onMouseLeave={e => e.currentTarget.style.color = '#64748b'}
+        >
+          {isDark ? <Sun size={15} /> : <Moon size={15} />}
+          {isDark ? 'Light mode' : 'Dark mode'}
+        </button>
+      </div>
     </aside>
   )
 }
