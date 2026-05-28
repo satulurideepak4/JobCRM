@@ -1,23 +1,45 @@
+import { useTheme } from '../contexts/ThemeContext'
+import { cn } from '../lib/utils'
+
 export default function StatCard({ label, value, sub, highlight }) {
+  const { isDark } = useTheme()
   return (
-    <div style={{
-      background: 'var(--card)',
-      border: `1px solid ${highlight ? '#f59e0b55' : 'var(--border)'}`,
-      borderTop: `3px solid ${highlight ? '#f59e0b' : 'var(--border)'}`,
-      borderRadius: '10px',
-      padding: '20px',
-      flex: 1,
-      minWidth: '160px',
-      boxShadow: 'var(--shadow)',
-    }}>
-      <div style={{ fontSize: '12px', color: 'var(--text-4)', fontWeight: '500', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '10px' }}>{label}</div>
-      <div style={{
-        fontSize: '32px',
-        fontWeight: '700',
-        color: highlight ? '#f59e0b' : 'var(--text)',
-        lineHeight: 1,
-      }}>{value}</div>
-      {sub && <div style={{ fontSize: '12px', color: 'var(--text-4)', marginTop: '6px' }}>{sub}</div>}
+    <div className={cn(
+      'flex-1 min-w-[160px] rounded-xl p-5 transition-all duration-200',
+      highlight
+        ? [
+            'border border-t-[3px] border-t-amber-500',
+            isDark
+              ? 'bg-dark-card border-amber-500/30 shadow-lg shadow-black/20'
+              : 'bg-white border-amber-200 shadow-md',
+          ]
+        : [
+            'border border-t-[3px] border-t-brand',
+            isDark
+              ? 'bg-dark-card border-dark-border shadow-lg shadow-black/20'
+              : 'bg-white border-gray-300 shadow-sm',
+          ],
+    )}>
+      <div className={cn(
+        'text-[11px] font-semibold uppercase tracking-wider mb-2.5',
+        isDark ? 'text-slate-500' : 'text-slate-600',
+      )}>{label}</div>
+
+      <div className={cn(
+        'text-[32px] font-bold leading-none',
+        highlight
+          ? 'text-amber-500'
+          : isDark ? 'text-slate-100' : 'text-slate-900',
+      )}>{value}</div>
+
+      {sub && (
+        <div className={cn(
+          'text-xs mt-1.5',
+          highlight
+            ? 'text-amber-500/80'
+            : isDark ? 'text-slate-500' : 'text-slate-600',
+        )}>{sub}</div>
+      )}
     </div>
   )
 }

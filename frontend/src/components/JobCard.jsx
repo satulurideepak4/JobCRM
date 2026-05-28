@@ -2,16 +2,18 @@ import api from '../api/client'
 import { useQueryClient } from '@tanstack/react-query'
 import { MapPin, Building2, X } from 'lucide-react'
 import { useState } from 'react'
+import { useTheme } from '../contexts/ThemeContext'
+import { cn } from '../lib/utils'
 
 const SOURCE_CONFIG = {
-  remotive:   { color: '#2563eb', label: 'Remotive',   border: '#3b82f6' },
-  arbeitnow:  { color: '#16a34a', label: 'Arbeitnow',  border: '#22c55e' },
-  greenhouse: { color: '#7c3aed', label: 'Greenhouse', border: '#8b5cf6' },
-  lever:      { color: '#d97706', label: 'Lever',      border: '#f59e0b' },
-  ashby:      { color: '#0891b2', label: 'Ashby',      border: '#06b6d4' },
-  jsearch:    { color: '#ca8a04', label: 'JSearch',    border: '#eab308' },
-  hn_hiring:  { color: '#ea580c', label: 'HN Hiring',  border: '#f97316' },
-  workday:    { color: '#4f46e5', label: 'Workday',    border: '#6366f1' },
+  remotive:   { color: '#3b82f6', label: 'Remotive',   border: '#3b82f6' },
+  arbeitnow:  { color: '#22c55e', label: 'Arbeitnow',  border: '#22c55e' },
+  greenhouse: { color: '#8b5cf6', label: 'Greenhouse', border: '#8b5cf6' },
+  lever:      { color: '#f59e0b', label: 'Lever',      border: '#f59e0b' },
+  ashby:      { color: '#06b6d4', label: 'Ashby',      border: '#06b6d4' },
+  jsearch:    { color: '#eab308', label: 'JSearch',    border: '#eab308' },
+  hn_hiring:  { color: '#f97316', label: 'HN Hiring',  border: '#f97316' },
+  workday:    { color: '#6366f1', label: 'Workday',    border: '#6366f1' },
 }
 
 const LOCAL_PREFIXES = ['title_match', 'skills:', 'secondary:', 'remote', 'has_salary', 'tag_match']
@@ -21,57 +23,60 @@ function isAiScored(job) {
   return !LOCAL_PREFIXES.some(p => job.match_reasons[0]?.startsWith(p))
 }
 
-function getTagStyle(tag) {
+// Tag colors: [lightBg, lightText, darkBg, darkText]
+const TAG_PALETTES = {
+  remote:  ['#dcfce7', '#15803d', 'rgba(21,128,61,0.2)',  '#4ade80'],
+  backend: ['#dbeafe', '#1d4ed8', 'rgba(29,78,216,0.2)',  '#93c5fd'],
+  js:      ['#fef9c3', '#92400e', 'rgba(146,64,14,0.2)',  '#fcd34d'],
+  db:      ['#ccfbf1', '#0f766e', 'rgba(15,118,110,0.2)', '#5eead4'],
+  ai:      ['#ffedd5', '#c2410c', 'rgba(194,65,12,0.2)',  '#fdba74'],
+  infra:   ['#f3e8ff', '#7e22ce', 'rgba(126,34,206,0.2)', '#c4b5fd'],
+  web:     ['#e0e7ff', '#4338ca', 'rgba(67,56,202,0.2)',  '#a5b4fc'],
+  default: ['#f1f5f9', '#64748b', 'rgba(100,116,139,0.15)', '#94a3b8'],
+}
+
+function getTagPalette(tag) {
   const t = tag.toLowerCase()
-  if (t.includes('remote')) return { bg: '#dcfce7', color: '#15803d' }
-  if (['python', 'ruby', 'go', 'rust', 'java', 'elixir', 'scala', 'swift', 'kotlin', 'c++', 'c#', 'php', 'perl'].some(l => t === l || t.startsWith(l)))
-    return { bg: '#dbeafe', color: '#1d4ed8' }
-  if (['javascript', 'typescript', 'node', 'react', 'vue', 'angular', 'next', 'svelte', 'jquery'].some(l => t.includes(l)))
-    return { bg: '#fef9c3', color: '#92400e' }
-  if (['sql', 'postgres', 'mysql', 'mongo', 'redis', 'elastic', 'dynamo', 'cassandra', 'sqlite'].some(l => t.includes(l)))
-    return { bg: '#ccfbf1', color: '#0f766e' }
-  if (['llm', 'pytorch', 'tensorflow', 'cuda', 'gpt', 'bert', 'langchain', 'openai', 'ml', 'ai', 'mlops', 'rag'].some(l => t.includes(l)))
-    return { bg: '#ffedd5', color: '#c2410c' }
-  if (['docker', 'kubernetes', 'k8s', 'aws', 'gcp', 'azure', 'terraform', 'devops', 'jenkins', 'ci/cd'].some(l => t.includes(l)))
-    return { bg: '#f3e8ff', color: '#7e22ce' }
-  if (['fastapi', 'django', 'flask', 'express', 'spring', 'rails', 'laravel', 'graphql'].some(l => t.includes(l)))
-    return { bg: '#e0e7ff', color: '#4338ca' }
-  return { bg: 'var(--border-light)', color: 'var(--text-2)' }
+  if (t.includes('remote')) return TAG_PALETTES.remote
+  if (['python','ruby','go','rust','java','elixir','scala','swift','kotlin','c++','c#','php'].some(l => t === l || t.startsWith(l))) return TAG_PALETTES.backend
+  if (['javascript','typescript','node','react','vue','angular','next','svelte'].some(l => t.includes(l))) return TAG_PALETTES.js
+  if (['sql','postgres','mysql','mongo','redis','elastic','dynamo','cassandra'].some(l => t.includes(l))) return TAG_PALETTES.db
+  if (['llm','pytorch','tensorflow','gpt','bert','langchain','openai','ml',' ai','mlops','rag'].some(l => t.includes(l))) return TAG_PALETTES.ai
+  if (['docker','kubernetes','k8s','aws','gcp','azure','terraform','devops'].some(l => t.includes(l))) return TAG_PALETTES.infra
+  if (['fastapi','django','flask','express','spring','rails','graphql'].some(l => t.includes(l))) return TAG_PALETTES.web
+  return TAG_PALETTES.default
 }
 
 function ScoreCircle({ score }) {
   const bg = score >= 80 ? '#22c55e' : score >= 60 ? '#f59e0b' : '#94a3b8'
   return (
-    <div style={{
-      width: '44px', height: '44px', borderRadius: '50%',
-      background: bg, display: 'flex', alignItems: 'center',
-      justifyContent: 'center', fontSize: '15px', fontWeight: '700',
-      color: '#fff', flexShrink: 0,
-    }}>
+    <div
+      className="w-11 h-11 rounded-full flex items-center justify-center text-[15px] font-bold text-white flex-shrink-0"
+      style={{ background: bg }}
+    >
       {score}
     </div>
   )
 }
 
-function KeywordCircle() {
+function KeywordCircle({ isDark }) {
   return (
-    <div style={{
-      width: '44px', height: '44px', borderRadius: '50%',
-      background: 'var(--border-light)', border: '1px solid var(--border)',
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-      flexShrink: 0, flexDirection: 'column', gap: '1px',
-    }}>
-      <div style={{ fontSize: '8px', color: 'var(--text-4)', fontWeight: '700', textAlign: 'center', lineHeight: 1.2 }}>KEY</div>
-      <div style={{ fontSize: '8px', color: 'var(--text-4)', lineHeight: 1 }}>WORD</div>
+    <div className={cn(
+      'w-11 h-11 rounded-full border flex flex-col items-center justify-center gap-0.5 flex-shrink-0',
+      isDark ? 'bg-dark-surface border-dark-border' : 'bg-slate-100 border-slate-200',
+    )}>
+      <div className={cn('text-[8px] font-bold leading-none', isDark ? 'text-slate-600' : 'text-slate-500')}>KEY</div>
+      <div className={cn('text-[8px] leading-none',            isDark ? 'text-slate-600' : 'text-slate-500')}>WORD</div>
     </div>
   )
 }
 
 export default function JobCard({ job, onDraftEmail }) {
+  const { isDark } = useTheme()
   const qc = useQueryClient()
   const [loading, setLoading] = useState(false)
   const aiScored = isAiScored(job)
-  const src = SOURCE_CONFIG[job.source] || { color: '#64748b', label: job.source || 'Unknown', border: 'var(--border)' }
+  const src = SOURCE_CONFIG[job.source] || { color: '#64748b', label: job.source || 'Unknown', border: '#64748b' }
 
   async function updateStatus(status) {
     setLoading(true)
@@ -90,55 +95,54 @@ export default function JobCard({ job, onDraftEmail }) {
     : baseTags
 
   return (
-    <div style={{
-      background: 'var(--card)',
-      border: '1px solid var(--border)',
-      borderLeft: `4px solid ${src.border}`,
-      borderRadius: '10px',
-      padding: '18px 20px',
-      display: 'flex',
-      flexDirection: 'column',
-      gap: '10px',
-      boxShadow: 'var(--shadow)',
-      transition: 'box-shadow 0.15s',
-    }}
-      onMouseEnter={e => e.currentTarget.style.boxShadow = 'var(--shadow-md)'}
-      onMouseLeave={e => e.currentTarget.style.boxShadow = 'var(--shadow)'}
+    <div
+      className={cn(
+        'flex flex-col gap-2.5 rounded-xl px-5 py-4 border-l-[4px] border transition-all duration-150',
+        isDark
+          ? 'bg-dark-card border-dark-border hover:shadow-lg hover:shadow-black/20'
+          : 'bg-white border-gray-300 shadow-sm hover:shadow-md hover:shadow-slate-200',
+      )}
+      style={{ borderLeftColor: src.border }}
     >
-      {/* Header row: source + title + score */}
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '12px' }}>
-        <div style={{ flex: 1, minWidth: 0 }}>
+      {/* Header: source + title + score */}
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex-1 min-w-0">
           {/* Source badge */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '5px', marginBottom: '7px' }}>
-            <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: src.color, display: 'inline-block', flexShrink: 0 }} />
-            <span style={{ fontSize: '10px', fontWeight: '700', color: src.color, letterSpacing: '0.6px', textTransform: 'uppercase' }}>
+          <div className="flex items-center gap-1.5 mb-1.5">
+            <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: src.color }} />
+            <span className="text-[10px] font-bold uppercase tracking-wider" style={{ color: src.color }}>
               {src.label}
             </span>
           </div>
           {/* Title */}
-          <div style={{ fontSize: '15px', fontWeight: '700', color: 'var(--text)', lineHeight: '1.3', marginBottom: '5px' }}>
+          <div className={cn('text-[15px] font-bold leading-snug mb-1', isDark ? 'text-slate-100' : 'text-slate-900')}>
             {job.title}
           </div>
           {/* Company */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-            <Building2 size={12} color="var(--text-4)" />
-            <span style={{ fontSize: '13px', color: 'var(--text-2)' }}>{job.company_name}</span>
+          <div className="flex items-center gap-1.5">
+            <Building2 size={12} className={isDark ? 'text-slate-600' : 'text-slate-500'} />
+            <span className={cn('text-[13px]', isDark ? 'text-slate-400' : 'text-slate-600')}>{job.company_name}</span>
           </div>
         </div>
-        {/* Score */}
-        {aiScored ? <ScoreCircle score={job.match_score} /> : <KeywordCircle />}
+        {aiScored ? <ScoreCircle score={job.match_score} /> : <KeywordCircle isDark={isDark} />}
       </div>
 
       {/* Tags */}
       {allTags.length > 0 && (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px' }}>
+        <div className="flex flex-wrap gap-1.5">
           {allTags.slice(0, 6).map((tag, i) => {
-            const ts = getTagStyle(tag)
+            const [lightBg, lightText, darkBg, darkText] = getTagPalette(tag)
             return (
-              <span key={i} style={{
-                fontSize: '11px', padding: '3px 9px', borderRadius: '20px',
-                background: ts.bg, color: ts.color, fontWeight: '500',
-              }}>{tag}</span>
+              <span
+                key={i}
+                className="text-[11px] px-2.5 py-0.5 rounded-full font-medium"
+                style={{
+                  background: isDark ? darkBg : lightBg,
+                  color:      isDark ? darkText : lightText,
+                }}
+              >
+                {tag}
+              </span>
             )
           })}
         </div>
@@ -146,65 +150,75 @@ export default function JobCard({ job, onDraftEmail }) {
 
       {/* AI match reasons */}
       {aiScored && job.match_reasons?.length > 0 && (
-        <ul style={{ fontSize: '12px', color: '#6366f1', paddingLeft: '16px', lineHeight: '1.6', margin: 0 }}>
+        <ul className="text-xs text-brand pl-4 leading-relaxed m-0 space-y-0.5">
           {job.match_reasons.slice(0, 2).map((r, i) => <li key={i}>{r}</li>)}
         </ul>
       )}
 
       {/* Salary */}
       {job.salary_range && (
-        <div style={{ fontSize: '13px', color: '#16a34a', fontWeight: '600' }}>{job.salary_range}</div>
+        <div className="text-[13px] text-emerald-500 font-semibold">{job.salary_range}</div>
       )}
 
-      {/* Description (keyword-only jobs) */}
+      {/* Description (keyword-only) */}
       {!aiScored && job.description && (
-        <p style={{
-          fontSize: '12px', color: 'var(--text-3)', lineHeight: '1.5', margin: 0,
-          display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden',
-        }}>
+        <p className={cn(
+          'text-xs leading-relaxed m-0 line-clamp-2',
+          isDark ? 'text-slate-500' : 'text-slate-600',
+        )}>
           {job.description.replace(/<[^>]*>/g, '')}
         </p>
       )}
 
-      {/* Bottom: location + actions */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', paddingTop: '4px', borderTop: '1px solid var(--border-light)', marginTop: '2px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-          <MapPin size={12} color="var(--text-4)" />
-          <span style={{ fontSize: '12px', color: 'var(--text-4)' }}>{job.location || 'Remote'}</span>
+      {/* Footer: location + actions */}
+      <div className={cn(
+        'flex items-center justify-between gap-2 pt-2.5 mt-0.5 border-t',
+        isDark ? 'border-dark-border' : 'border-slate-100',
+      )}>
+        <div className="flex items-center gap-1.5">
+          <MapPin size={12} className={isDark ? 'text-slate-600' : 'text-slate-500'} />
+          <span className={cn('text-xs', isDark ? 'text-slate-500' : 'text-slate-600')}>
+            {job.location || 'Remote'}
+          </span>
         </div>
-        <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexShrink: 0 }}>
+
+        <div className="flex items-center gap-1.5 flex-shrink-0">
           {job.status === 'new' && (
             <>
               <button
                 onClick={() => updateStatus('saved')}
                 disabled={loading}
-                style={{
-                  fontSize: '12px', padding: '5px 12px', borderRadius: '6px',
-                  border: '1px solid var(--border)', background: 'var(--card)', color: 'var(--text-2)',
-                  cursor: 'pointer', fontWeight: '500',
-                }}
-              >Save</button>
+                className={cn(
+                  'text-xs px-3 py-1.5 rounded-lg border font-medium transition-colors',
+                  isDark
+                    ? 'border-dark-border text-slate-400 hover:text-slate-200 hover:border-slate-600'
+                    : 'border-gray-200 text-slate-500 hover:text-slate-700 hover:border-gray-300',
+                )}
+              >
+                Save
+              </button>
               <button
                 onClick={() => updateStatus('dismissed')}
                 disabled={loading}
-                style={{
-                  fontSize: '12px', padding: '5px 8px', borderRadius: '6px',
-                  border: '1px solid var(--border)', background: 'var(--card)', color: 'var(--text-4)',
-                  cursor: 'pointer',
-                }}
-              ><X size={12} /></button>
+                className={cn(
+                  'p-1.5 rounded-lg border transition-colors',
+                  isDark
+                    ? 'border-dark-border text-slate-600 hover:text-slate-400 hover:border-slate-600'
+                    : 'border-gray-300 text-slate-500 hover:text-slate-700',
+                )}
+              >
+                <X size={12} />
+              </button>
             </>
           )}
           <a
             href={job.source_url}
             target="_blank"
             rel="noopener noreferrer"
-            style={{
-              fontSize: '12px', padding: '5px 14px', borderRadius: '6px',
-              background: '#f97316', color: '#fff', textDecoration: 'none',
-              fontWeight: '600', whiteSpace: 'nowrap',
-            }}
-          >Apply →</a>
+            className="text-xs px-3.5 py-1.5 rounded-lg bg-orange-500 hover:bg-orange-600 text-white font-semibold transition-colors whitespace-nowrap"
+          >
+            Apply →
+          </a>
         </div>
       </div>
     </div>

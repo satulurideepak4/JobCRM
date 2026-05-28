@@ -1,85 +1,92 @@
-import { NavLink } from 'react-router-dom'
-import { LayoutDashboard, Briefcase, Search, Mail, Bell, User, Mic, Sun, Moon } from 'lucide-react'
+import { NavLink, useLocation } from 'react-router-dom'
+import { motion } from 'framer-motion'
+import { useTheme } from '../contexts/ThemeContext'
+import { cn } from '../lib/utils'
+import {
+  LayoutDashboard, Briefcase, Search, Mail, Bell, Mic, User, Sun, Moon,
+} from 'lucide-react'
 
-const links = [
-  { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
-  { to: '/applications', icon: Briefcase, label: 'Applications' },
-  { to: '/jobs', icon: Search, label: 'Job Search' },
-  { to: '/emails', icon: Mail, label: 'Emails' },
-  { to: '/followups', icon: Bell, label: 'Follow-ups' },
-  { to: '/interview', icon: Mic, label: 'Interview' },
-  { to: '/profile', icon: User, label: 'Profile' },
+const NAV_ITEMS = [
+  { to: '/',           icon: LayoutDashboard, label: 'Dashboard' },
+  { to: '/applications', icon: Briefcase,     label: 'Applications' },
+  { to: '/jobs',       icon: Search,          label: 'Job Search' },
+  { to: '/emails',     icon: Mail,            label: 'Emails' },
+  { to: '/followups',  icon: Bell,            label: 'Follow-ups' },
+  { to: '/interview',  icon: Mic,             label: 'Interview' },
+  { to: '/profile',    icon: User,            label: 'Profile' },
 ]
 
-const styles = {
-  sidebar: {
-    width: '220px',
-    minHeight: '100vh',
-    background: '#0f172a',
-    borderRight: '1px solid #1e293b',
-    display: 'flex',
-    flexDirection: 'column',
-    padding: '24px 0',
-    flexShrink: 0,
-  },
-  logo: {
-    padding: '0 20px 24px',
-    borderBottom: '1px solid #1e293b',
-    marginBottom: '16px',
-  },
-  nav: { display: 'flex', flexDirection: 'column', gap: '2px', padding: '0 10px' },
-  link: (isActive) => ({
-    display: 'flex',
-    alignItems: 'center',
-    gap: '10px',
-    padding: '9px 12px',
-    borderRadius: '8px',
-    color: isActive ? '#f1f5f9' : '#64748b',
-    background: isActive ? '#1e293b' : 'transparent',
-    textDecoration: 'none',
-    fontSize: '14px',
-    fontWeight: isActive ? '500' : '400',
-    transition: 'all 0.15s',
-  }),
-}
+export default function Sidebar() {
+  const { toggle, isDark } = useTheme()
+  const location = useLocation()
 
-export default function Sidebar({ isDark, toggleTheme }) {
   return (
-    <aside style={styles.sidebar}>
-      <div style={styles.logo}>
-        <div style={{ fontSize: '20px', fontWeight: '800', letterSpacing: '-0.5px' }}>
-          <span style={{ color: '#ffffff' }}>Job</span>
-          <span style={{ color: '#f97316' }}>CRM</span>
+    <aside className={cn(
+      'flex flex-col w-[220px] flex-shrink-0 h-screen sticky top-0',
+      'border-r transition-colors duration-200',
+      isDark
+        ? 'bg-dark-surface border-dark-border'
+        : 'bg-white border-light-border shadow-sm'
+    )}>
+      {/* Logo */}
+      <div className="px-5 py-6 flex items-center gap-2">
+        <div className="w-7 h-7 rounded-lg bg-brand flex items-center justify-center flex-shrink-0">
+          <Briefcase size={14} className="text-white" />
         </div>
-        <div style={{ fontSize: '11px', color: '#334155', marginTop: '3px' }}>Local · Private · Open Source</div>
+        <span className={cn(
+          'text-[15px] font-bold tracking-tight',
+          isDark ? 'text-white' : 'text-gray-900'
+        )}>
+          Job<span className="text-brand">CRM</span>
+        </span>
       </div>
-      <nav style={styles.nav}>
-        {links.map(({ to, icon: Icon, label }) => (
-          <NavLink
-            key={to}
-            to={to}
-            end={to === '/'}
-            style={({ isActive }) => styles.link(isActive)}
-          >
-            <Icon size={15} />
-            {label}
-          </NavLink>
-        ))}
+
+      {/* Nav */}
+      <nav className="flex-1 px-3 space-y-0.5 overflow-y-auto">
+        {NAV_ITEMS.map(({ to, icon: Icon, label }) => {
+          const isActive = to === '/'
+            ? location.pathname === '/'
+            : location.pathname.startsWith(to)
+          return (
+            <NavLink key={to} to={to}>
+              <motion.div
+                whileHover={{ x: 2 }}
+                transition={{ duration: 0.15 }}
+                className={cn(
+                  'flex items-center gap-3 px-3 py-2.5 rounded-lg text-[13.5px] font-medium transition-all duration-150 cursor-pointer',
+                  isActive
+                    ? 'bg-brand text-white shadow-sm shadow-brand/20'
+                    : isDark
+                      ? 'text-slate-400 hover:text-white hover:bg-dark-hover'
+                      : 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
+                )}
+              >
+                <Icon size={15} className="flex-shrink-0" />
+                {label}
+              </motion.div>
+            </NavLink>
+          )
+        })}
       </nav>
-      <div style={{ marginTop: 'auto', padding: '16px 10px', borderTop: '1px solid #1e293b' }}>
+
+      {/* Bottom: theme toggle */}
+      <div className={cn(
+        'px-3 py-4 border-t',
+        isDark ? 'border-dark-border' : 'border-light-border'
+      )}>
         <button
-          onClick={toggleTheme}
-          style={{
-            width: '100%', display: 'flex', alignItems: 'center', gap: '10px',
-            padding: '9px 12px', borderRadius: '8px',
-            background: 'transparent', border: 'none', cursor: 'pointer',
-            color: '#64748b', fontSize: '14px', transition: 'color 0.15s',
-          }}
-          onMouseEnter={e => e.currentTarget.style.color = '#f1f5f9'}
-          onMouseLeave={e => e.currentTarget.style.color = '#64748b'}
+          onClick={toggle}
+          className={cn(
+            'flex items-center gap-3 px-3 py-2.5 rounded-lg text-[13px] font-medium w-full transition-all duration-150',
+            isDark
+              ? 'text-slate-400 hover:text-white hover:bg-dark-hover'
+              : 'text-slate-500 hover:text-slate-800 hover:bg-slate-100'
+          )}
         >
-          {isDark ? <Sun size={15} /> : <Moon size={15} />}
-          {isDark ? 'Light mode' : 'Dark mode'}
+          {isDark
+            ? <><Sun size={14} /> <span>Light mode</span></>
+            : <><Moon size={14} /> <span>Dark mode</span></>
+          }
         </button>
       </div>
     </aside>

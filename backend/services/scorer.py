@@ -1,4 +1,4 @@
-from typing import List, Dict
+from typing import List, Dict, Optional
 import llm_service
 
 
@@ -7,23 +7,24 @@ import llm_service
 def local_filter(jobs: List[Dict], profile: Dict) -> List[Dict]:
     """
     Fast local filter before any LLM calls.
-    Scores each job on three tiers and returns jobs that clear a minimum bar.
 
-    Must have (3 pts each):
-      - Job title contains the target role word
-      - Job description contains a primary skill (first 5 skills)
+    Scoring:
+      Must-have (3 pts each):
+        - Job title contains the target role word
+        - Description/tags contain a primary skill (first 5 skills)
 
-    Good to have (2 pts each):
-      - Description contains a secondary skill (skills 6-15)
-      - Job type matches preference (remote)
+      Good-to-have (2 pts each):
+        - Description contains a secondary skill (skills 6-15)
+        - Remote preference matched
 
-    Nice to have (1 pt each):
-      - Salary mentioned in listing
-      - Company website present
-      - Tags overlap with skills
+      Nice-to-have (1 pt each):
+        - Salary mentioned
+        - Company website present
+        - Tags overlap with skills
 
-    Minimum to pass: at least 3 points (one must-have)
-    Jobs are returned sorted by local_score descending.
+    Hard gate: must match role OR primary skill.
+    Minimum to pass: 5 points — requires at least TWO positive signals,
+    preventing pure title-only or single-skill-only false positives.
     """
     role = profile.get("role", "").lower()
     skills = [s.lower() for s in (profile.get("skills") or [])]
@@ -31,9 +32,8 @@ def local_filter(jobs: List[Dict], profile: Dict) -> List[Dict]:
     secondary_skills = skills[5:15]
     remote_pref = profile.get("preferences", {}).get("remote_only", False)
 
-    # Extract meaningful role keywords — keep 3+ char words so short roles
-    # like "ios", "sre", "dev" are included
-    stop_words = {"and", "or", "the", "for", "with", "from", "senior", "junior", "lead", "staff"}
+    stop_words = {"and", "or", "the", "for", "with", "from", "senior", "junior",
+                  "lead", "staff", "principal", "associate"}
     role_keywords = [w for w in role.split() if len(w) > 2 and w not in stop_words]
     if not role_keywords and role:
         role_keywords = [role]
@@ -49,7 +49,7 @@ def local_filter(jobs: List[Dict], profile: Dict) -> List[Dict]:
         score = 0
         reasons = []
 
-        # Must-have checks (3 pts each)
+        # Must-have checks
         role_match = any(kw in title for kw in role_keywords)
         if role_match:
             score += 3
@@ -60,12 +60,11 @@ def local_filter(jobs: List[Dict], profile: Dict) -> List[Dict]:
             score += 3
             reasons.append(f"skills:{','.join(primary_match[:2])}")
 
-        # Hard gate: must match on role OR a primary skill — no freeloading
-        # on secondary/salary signals alone
+        # Hard gate: discard if neither role nor primary skill matched
         if not role_match and not primary_match:
             continue
 
-        # Good to have (2 pts each)
+        # Good-to-have
         secondary_match = [s for s in secondary_skills if s in combined]
         if secondary_match:
             score += 2
@@ -73,13 +72,12 @@ def local_filter(jobs: List[Dict], profile: Dict) -> List[Dict]:
 
         is_remote = "remote" in location or "remote" in combined
         if remote_pref and not is_remote:
-            # Penalise non-remote but don't hard-drop (user may still want it)
             score -= 2
         elif remote_pref and is_remote:
             score += 2
             reasons.append("remote")
 
-        # Nice to have (1 pt each)
+        # Nice-to-have
         if job.get("salary_range"):
             score += 1
             reasons.append("has_salary")
@@ -92,11 +90,12 @@ def local_filter(jobs: List[Dict], profile: Dict) -> List[Dict]:
             score += 1
             reasons.append("tag_match")
 
-        if score >= 3:
+        # Require at least 2 positive signals (min 5 points)
+        if score >= 5:
             job_copy = dict(job)
             job_copy["local_score"] = score
             job_copy["local_reasons"] = reasons
-            job_copy["match_score"] = 0  # will be set by LLM later
+            job_copy["match_score"] = 0
             job_copy["match_reasons"] = []
             job_copy["ai_scored"] = False
             results.append(job_copy)
@@ -105,11 +104,17 @@ def local_filter(jobs: List[Dict], profile: Dict) -> List[Dict]:
     return results
 
 
-# ── Stage 2: LLM batch scoring (user-triggered) ───────────────────────────────
+# ── Stage 2: LLM batch scoring ────────────────────────────────────────────────
 
-async def score_jobs_batch_llm(job_ids: List[int], profile: Dict) -> Dict[int, Dict]:
+async def score_jobs_batch_llm(
+    job_ids: List[int],
+    profile: Dict,
+    resume_text: Optional[str] = None,
+) -> Dict[int, Dict]:
     """
-    Score a list of job IDs using LLM. Sends 20 jobs per LLM call.
+    Score a list of job IDs using LLM.
+    Sends 20 jobs per LLM call for efficiency.
+    resume_text: the full extracted resume text (optional but greatly improves quality).
     Returns dict of {job_id: {score, reasons, tags, is_remote}}.
     """
     import asyncio
@@ -130,33 +135,72 @@ async def score_jobs_batch_llm(job_ids: List[int], profile: Dict) -> Dict[int, D
 
     for i in range(0, len(job_list), batch_size):
         batch = job_list[i:i + batch_size]
-        scores = await _score_batch(batch, profile)
+        scores = await _score_batch(batch, profile, resume_text)
         results.update(scores)
 
     return results
 
 
-async def _score_batch(jobs, profile: Dict) -> Dict[int, Dict]:
-    """Send up to 20 jobs in a single LLM call and parse scores for each."""
+async def _score_batch(
+    jobs,
+    profile: Dict,
+    resume_text: Optional[str] = None,
+) -> Dict[int, Dict]:
+    """Send up to 20 jobs to the LLM and parse scores."""
     import json
+
+    # Build a rich profile context — use resume if available
+    resume_section = ""
+    if resume_text and len(resume_text.strip()) > 50:
+        resume_section = f"\nRESUME SUMMARY (use this for deep matching):\n{resume_text[:2000]}\n"
+
+    profile_context = (
+        f"Role Seeking: {profile.get('role')}\n"
+        f"Skills: {', '.join(profile.get('skills', []))}\n"
+        f"Experience: {profile.get('experience_years', 0)} years\n"
+        f"Preferences: {profile.get('preferences', {})}"
+        f"{resume_section}"
+    )
 
     job_lines = []
     for idx, job in enumerate(jobs):
+        desc = (job.description or "")[:1500]
+        tags_str = ", ".join(job.tags or [])
         job_lines.append(
-            f"{idx + 1}. ID={job.id} | Title: {job.title} | Company: {job.company_name} | "
-            f"Location: {job.location} | Description: {(job.description or '')[:400]}"
+            f"--- JOB {idx + 1} ---\n"
+            f"ID: {job.id}\n"
+            f"Title: {job.title}\n"
+            f"Company: {job.company_name}\n"
+            f"Location: {job.location}\n"
+            f"Tags: {tags_str}\n"
+            f"Description: {desc}\n"
         )
 
     jobs_text = "\n".join(job_lines)
 
-    prompt = f"""Score each job against this profile.
-Profile: role={profile.get('role')}, skills={profile.get('skills')}, experience={profile.get('experience_years')} years, preferences={profile.get('preferences')}.
+    prompt = f"""You are a job-match evaluator. Score each job listing for this specific candidate.
 
-Jobs:
+CANDIDATE PROFILE:
+{profile_context}
+
+SCORING RUBRIC:
+- 85-100: Excellent. Role matches exactly, most required skills present, remote-friendly or matches location pref
+- 70-84:  Strong. Role is close, 3+ key skills match, reasonable fit
+- 50-69:  Decent. Role adjacent, 2+ skills overlap, worth considering
+- 30-49:  Weak. Minimal overlap — different domain or role mismatch
+- 0-29:   Poor. Wrong domain, missing critical skills
+
+JOBS:
 {jobs_text}
 
-Reply only in JSON as an array with one entry per job in the same order:
-[{{"id": <job_id>, "score": <0-100>, "reasons": [<str>, <str>], "tags": [<str>], "is_remote": <bool>}}]"""
+Reply ONLY as a JSON array with one entry per job IN THE SAME ORDER:
+[{{"id": <job_id>, "score": <0-100>, "reasons": ["<specific reason mentioning actual skills/role>", "<another>"], "tags": ["<skill tag>"], "is_remote": <bool>}}]
+
+Rules:
+- reasons must be SPECIFIC (e.g. "requires Python and FastAPI which candidate has" not "good match")
+- Penalise hard if job requires skills the candidate clearly lacks
+- Check if the role level (junior/senior/staff) fits the candidate's experience
+- is_remote: true only if job is actually fully remote, not just "remote friendly" """
 
     try:
         result = await llm_service.generate(prompt)
@@ -171,7 +215,6 @@ Reply only in JSON as an array with one entry per job in the same order:
                 for item in result
                 if "id" in item
             }
-        # Sometimes returns dict with a key wrapping the array
         if isinstance(result, dict):
             for v in result.values():
                 if isinstance(v, list):

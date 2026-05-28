@@ -1,11 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { Mic, MicOff, RefreshCw, X, ChevronDown, ChevronUp } from 'lucide-react'
+import { Mic, MicOff, RefreshCw, X, ChevronDown, ChevronUp, Send } from 'lucide-react'
 import api from '../api/client'
 import { useSpeechSynthesis } from '../hooks/useSpeechSynthesis'
 import { useSpeechRecognition } from '../hooks/useSpeechRecognition'
+import { useTheme } from '../contexts/ThemeContext'
 
-// States the interview room can be in
 const STATE = {
   LOADING: 'loading',
   SPEAKING: 'speaking',
@@ -15,36 +15,33 @@ const STATE = {
   ERROR: 'error',
 }
 
-// Animated waveform bars for speaking indicator
-function WaveformBars({ active }) {
+// Animated waveform bars
+function WaveformBars({ active, isDark }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: '4px', height: '40px' }}>
+    <div className="flex items-center gap-1 h-10">
       {[0.6, 1.0, 0.7, 1.0, 0.5, 0.9, 0.6].map((h, i) => (
         <div
           key={i}
+          className="w-1 rounded-sm transition-colors duration-300"
           style={{
-            width: '4px',
-            borderRadius: '2px',
-            background: active ? '#6366f1' : '#334155',
+            background: active ? '#6366f1' : (isDark ? '#1e293b' : '#cbd5e1'),
             height: `${h * 100}%`,
-            animation: active ? `wave ${0.8 + i * 0.1}s ease-in-out infinite alternate` : 'none',
-            animationDelay: `${i * 0.08}s`,
-            transition: 'background 0.3s',
+            animation: active ? `wave ${0.8 + i * 0.1}s ease-in-out ${i * 0.08}s infinite alternate` : 'none',
           }}
         />
       ))}
       <style>{`
         @keyframes wave {
           from { transform: scaleY(0.3); }
-          to { transform: scaleY(1); }
+          to   { transform: scaleY(1); }
         }
       `}</style>
     </div>
   )
 }
 
-// Countdown bar (fills over silenceMs)
-function CountdownBar({ running, silenceMs = 2000 }) {
+// rAF-based progress bar filling over silenceMs
+function CountdownBar({ running, silenceMs = 3000, isDark }) {
   const [progress, setProgress] = useState(0)
   const startRef = useRef(null)
   const rafRef = useRef(null)
@@ -53,12 +50,9 @@ function CountdownBar({ running, silenceMs = 2000 }) {
     if (running) {
       startRef.current = Date.now()
       const tick = () => {
-        const elapsed = Date.now() - startRef.current
-        const p = Math.min(elapsed / silenceMs, 1)
+        const p = Math.min((Date.now() - startRef.current) / silenceMs, 1)
         setProgress(p)
-        if (p < 1) {
-          rafRef.current = requestAnimationFrame(tick)
-        }
+        if (p < 1) rafRef.current = requestAnimationFrame(tick)
       }
       rafRef.current = requestAnimationFrame(tick)
     } else {
@@ -69,85 +63,60 @@ function CountdownBar({ running, silenceMs = 2000 }) {
   }, [running, silenceMs])
 
   return (
-    <div style={{ width: '100%', height: '3px', background: '#1e293b', borderRadius: '2px', overflow: 'hidden' }}>
-      <div style={{
-        height: '100%',
-        width: `${progress * 100}%`,
-        background: '#ef4444',
-        borderRadius: '2px',
-        transition: 'width 0.05s linear',
-      }} />
+    <div className={`w-full h-[3px] rounded-full overflow-hidden ${isDark ? 'bg-slate-800' : 'bg-slate-200'}`}>
+      <div
+        className="h-full bg-red-500 rounded-full"
+        style={{ width: `${progress * 100}%`, transition: 'width 0.05s linear' }}
+      />
     </div>
   )
 }
 
-// Pulsing mic indicator
-function PulsingMic({ active }) {
+// Pulsing mic orb — also a button to start/stop recording
+function PulsingMic({ active, onClick, isDark, label }) {
   return (
-    <div style={{ position: 'relative', width: '80px', height: '80px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+    <button
+      onClick={onClick}
+      className="relative w-28 h-28 flex flex-col items-center justify-center gap-2 group focus:outline-none"
+      title={active ? 'Recording — tap to stop' : 'Tap to start recording'}
+    >
       {active && (
         <>
-          <div style={{
-            position: 'absolute',
-            width: '80px',
-            height: '80px',
-            borderRadius: '50%',
-            background: '#ef444430',
-            animation: 'pulse 1.5s ease-out infinite',
-          }} />
-          <div style={{
-            position: 'absolute',
-            width: '64px',
-            height: '64px',
-            borderRadius: '50%',
-            background: '#ef444420',
-            animation: 'pulse 1.5s ease-out infinite 0.3s',
-          }} />
+          <div className="absolute w-28 h-28 rounded-full bg-red-500/20 animate-ping" />
+          <div className="absolute w-20 h-20 rounded-full bg-red-500/10" style={{ animation: 'pulse 1.5s ease-out infinite 0.3s' }} />
         </>
       )}
-      <div style={{
-        width: '48px',
-        height: '48px',
-        borderRadius: '50%',
-        background: active ? '#ef4444' : '#334155',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        transition: 'background 0.3s',
-        position: 'relative',
-        zIndex: 1,
-      }}>
-        {active ? <Mic size={22} color="#fff" /> : <MicOff size={22} color="#64748b" />}
-      </div>
-      <style>{`
-        @keyframes pulse {
-          0% { transform: scale(0.8); opacity: 1; }
-          100% { transform: scale(1.5); opacity: 0; }
+      <div
+        className="relative z-10 w-16 h-16 rounded-full flex items-center justify-center transition-all duration-300 group-hover:scale-105 group-active:scale-95 shadow-lg"
+        style={{
+          background: active ? '#ef4444' : (isDark ? '#1e293b' : '#e2e8f0'),
+          boxShadow: active ? '0 0 0 4px rgba(239,68,68,0.2)' : 'none',
+        }}
+      >
+        {active
+          ? <Mic size={26} color="#fff" />
+          : <MicOff size={26} color={isDark ? '#475569' : '#94a3b8'} />
         }
-      `}</style>
-    </div>
+      </div>
+      {label && (
+        <span className={`text-xs font-medium z-10 ${active ? 'text-red-400' : (isDark ? 'text-slate-500' : 'text-slate-400')}`}>
+          {label}
+        </span>
+      )}
+    </button>
   )
 }
 
-// Spinner
-function Spinner() {
+function Spinner({ isDark }) {
   return (
-    <div style={{
-      width: '32px',
-      height: '32px',
-      border: '3px solid #334155',
-      borderTop: '3px solid #6366f1',
-      borderRadius: '50%',
-      animation: 'spin 0.8s linear infinite',
-    }}>
-      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-    </div>
+    <div className={`w-8 h-8 border-[3px] border-t-brand rounded-full animate-spin ${isDark ? 'border-slate-700' : 'border-slate-300'}`} />
   )
 }
 
 export default function InterviewRoom() {
   const { sessionId } = useParams()
   const navigate = useNavigate()
+  const { isDark } = useTheme()
 
   const [roomState, setRoomState] = useState(STATE.LOADING)
   const [session, setSession] = useState(null)
@@ -157,78 +126,256 @@ export default function InterviewRoom() {
   const [debrief, setDebrief] = useState(null)
   const [showTranscript, setShowTranscript] = useState(false)
   const [errorMsg, setErrorMsg] = useState(null)
-  const [isSilent, setIsSilent] = useState(false) // true after speech stops, waiting for submit
   const [endingEarly, setEndingEarly] = useState(false)
+  const [textAnswer, setTextAnswer] = useState('')
+  const [useTextMode, setUseTextMode] = useState(false)
+  const [micBlocked, setMicBlocked] = useState(false)
+  const [noMicFound, setNoMicFound] = useState(false)
+  const [checkingMic, setCheckingMic] = useState(false)
+  const [pendingListen, setPendingListen] = useState(false)
 
   const { speak, stop: stopSpeaking, isSpeaking } = useSpeechSynthesis()
 
-  const handleFinalTranscript = useCallback(async (text) => {
-    setIsSilent(false)
-    setRoomState(STATE.PROCESSING)
+  // Always-current ref to startListening — avoids stale closure in speak() callbacks
+  const startListeningRef = useRef(null)
 
+  const handleFinalTranscript = useCallback(async (text) => {
+    setRoomState(STATE.PROCESSING)
     try {
       const res = await api.post(`/api/interview/${sessionId}/respond`, { answer: text })
       const data = res.data
 
       if (data.is_final) {
-        // Speak closing line then show debrief
-        setCurrentQuestion(data.closing || "That concludes our interview.")
+        setCurrentQuestion(data.closing || 'That concludes our interview.')
         setRoomState(STATE.SPEAKING)
-        speak(data.closing || "That concludes our interview.", {
+        speak(data.closing || 'That concludes our interview.', {
           onEnd: () => {
             setDebrief(data.debrief)
             setRoomState(STATE.DEBRIEF)
-          }
+          },
         })
       } else {
         setCurrentQuestion(data.question)
         setQuestionNumber(data.question_number)
         setRoomState(STATE.SPEAKING)
         speak(data.question, {
-          onEnd: () => {
-            setTimeout(() => {
-              setRoomState(STATE.LISTENING)
-              startListening()
-            }, 600)
-          }
+          // Don't start mic here — set pendingListen and let the isSpeaking
+          // watcher open the mic only after TTS audio is fully done
+          onEnd: () => setPendingListen(true),
         })
       }
     } catch (err) {
-      const msg = err.response?.data?.detail || err.message || 'Failed to submit answer.'
-      setErrorMsg(msg)
+      setErrorMsg(err.response?.data?.detail || err.message || 'Failed to submit answer.')
       setRoomState(STATE.ERROR)
     }
-  }, [sessionId, speak])
+  }, [sessionId, speak]) // eslint-disable-line
 
   const {
     isListening,
     transcript,
     interimTranscript,
+    isSilenceWindowActive,
     error: micError,
     isSupported,
     startListening,
     stopListening,
+    submitNow,
     reset: resetRecognition,
   } = useSpeechRecognition({
     onFinalTranscript: handleFinalTranscript,
-    silenceSeconds: 2,
+    silenceSeconds: 3,
   })
 
-  // Detect when speech has been captured and we're waiting 2s to auto-submit
+  // Keep ref current so speak() callbacks always use latest startListening
+  useEffect(() => { startListeningRef.current = startListening }, [startListening])
+
+  // Auto-switch to text mode if mic not supported
   useEffect(() => {
-    if (isListening && transcript.length > 0) {
-      setIsSilent(true)
-    } else {
-      setIsSilent(false)
+    if (!isSupported) setUseTextMode(true)
+  }, [isSupported])
+
+  // When TTS finishes AND pendingListen is set → actually open the mic
+  // Using isSpeaking as a gate prevents the mic from picking up TTS audio echo
+  useEffect(() => {
+    if (pendingListen && !isSpeaking) {
+      setPendingListen(false)
+      setRoomState(STATE.LISTENING)
+      setTimeout(async () => {
+        if (useTextMode) return
+        // Only auto-start recognition if the mic is already permitted.
+        // Calling recognition.start() without a user gesture (from setTimeout) gives
+        // an immediate 'not-allowed' in incognito and some Chrome configurations —
+        // no dialog is shown, the user just sees the blocked card.
+        // When permission is 'prompt' or unknown, leave the orb in inactive state
+        // so the user taps it themselves (which IS a user gesture and triggers the dialog).
+        if (navigator.permissions) {
+          try {
+            const status = await navigator.permissions.query({ name: 'microphone' })
+            if (status.state === 'granted') startListeningRef.current?.()
+            // 'prompt' or 'denied': show inactive orb, require user tap
+          } catch {
+            startListeningRef.current?.() // Permissions API unsupported — try optimistically
+          }
+        } else {
+          startListeningRef.current?.() // No Permissions API — try optimistically
+        }
+      }, 400)
     }
-  }, [isListening, transcript])
+  }, [pendingListen, isSpeaking, useTextMode])
 
-  // Reset isSilent when new listening starts fresh
+  // Handle mic errors surfaced by the hook.
+  // Only show the blocked card for genuine mic permission denials.
+  // Hardware-missing and speech-service errors switch to text mode instead.
   useEffect(() => {
-    if (!isListening) setIsSilent(false)
-  }, [isListening])
+    if (!micError) return
+    if (micError === 'mic-not-found') {
+      // No microphone hardware — don't show the permissions card, go to text mode
+      setNoMicFound(true)
+      setMicBlocked(false)
+      setUseTextMode(true)
+    }
+    if (micError === 'mic-not-allowed') setMicBlocked(true)
+    if (micError === 'mic-service-not-allowed') { setMicBlocked(false); setUseTextMode(true) }
+  }, [micError])
 
-  // On mount: load session and speak first question
+  // Guard ref: prevent concurrent handleMicRetry calls (React Strict Mode double-invoke
+  // + polling effect re-runs can fire this multiple times simultaneously).
+  const micRetryRunningRef = useRef(false)
+
+  // handleMicRetry — called when user taps mic orb, "Try Again", or "Use mic".
+  // Uses the Speech Recognition probe directly — NO getUserMedia pre-check.
+  //
+  // Why skip getUserMedia? On some Chrome/macOS combos, getUserMedia() returns
+  // NotFoundError even when the mic is present and Chrome has full OS + site
+  // permission. The Speech Recognition API (webkitSpeechRecognition) uses a
+  // different internal code path and works correctly in those cases.
+  // The probe gives us all the same diagnostics:
+  //   onstart              → mic + service OK → start real recognition
+  //   onerror: audio-capture   → no mic hardware
+  //   onerror: not-allowed     → permission denied
+  //   onerror: service-not-allowed → incognito / service blocked
+  //
+  // IMPORTANT: defined before the polling useEffect that depends on it.
+  const handleMicRetry = useCallback(async () => {
+    if (micRetryRunningRef.current) {
+      console.log('[MIC] handleMicRetry skipped — already running')
+      return
+    }
+    micRetryRunningRef.current = true
+    console.log('[MIC] handleMicRetry started')
+    setCheckingMic(true)
+
+    const SpeechRecognition = window.webkitSpeechRecognition || window.SpeechRecognition
+    if (!SpeechRecognition) {
+      console.warn('[MIC] webkitSpeechRecognition not available → text mode')
+      micRetryRunningRef.current = false
+      setCheckingMic(false)
+      setUseTextMode(true)
+      return
+    }
+
+    // ── Probe: start a silent recognition session to test mic + service ────────────
+    console.log('[MIC] Probing speech recognition...')
+    const probeResult = await new Promise(resolve => {
+      const probe = new SpeechRecognition()
+      probe.continuous = false
+      probe.interimResults = false
+      let done = false
+      const finish = (outcome) => {
+        if (done) return
+        done = true
+        try { probe.abort() } catch {}
+        resolve(outcome)
+      }
+      probe.onstart = () => { console.log('[MIC] Probe onstart → mic OK'); finish('ok') }
+      probe.onerror = (e) => {
+        console.warn('[MIC] Probe onerror:', e.error)
+        if (e.error === 'not-allowed')         finish('permission-denied')
+        else if (e.error === 'service-not-allowed') finish('service-blocked')
+        else if (e.error === 'audio-capture')  finish('no-device')
+        else                                   finish('ok') // unknown — let real recognition decide
+      }
+      probe.onend = () => { console.log('[MIC] Probe onend'); finish('ok') }
+      setTimeout(() => { console.log('[MIC] Probe timeout → assume OK'); finish('ok') }, 3000)
+      try { probe.start() } catch (e) { console.error('[MIC] Probe start() threw:', e); finish('no-device') }
+    })
+
+    micRetryRunningRef.current = false
+    setCheckingMic(false)
+    console.log('[MIC] Probe result:', probeResult)
+
+    if (probeResult === 'permission-denied') {
+      setNoMicFound(false)
+      setMicBlocked(true)
+    } else if (probeResult === 'service-blocked') {
+      setMicBlocked(false)
+      setNoMicFound(false)
+      setUseTextMode(true)
+    } else if (probeResult === 'no-device') {
+      setNoMicFound(true)
+      setMicBlocked(false)
+      setUseTextMode(true)
+    } else {
+      // 'ok' — mic and service are good
+      console.log('[MIC] All clear → starting real recognition')
+      setMicBlocked(false)
+      setNoMicFound(false)
+      setUseTextMode(false)
+      startListeningRef.current?.()
+    }
+  }, [])
+
+  // When the blocked card is showing, poll the Permissions API every 2s.
+  // The moment user grants mic access in browser settings, auto-retry via getUserMedia.
+  // NOTE: We use handleMicRetry (not startListening directly) because Chrome caches the
+  // not-allowed state for webkitSpeechRecognition — getUserMedia must be called first.
+  useEffect(() => {
+    if (!micBlocked) return
+    if (!navigator.permissions) return
+
+    let status = null
+    let interval = null
+
+    const check = () => {
+      if (status?.state === 'granted') handleMicRetry()
+    }
+
+    navigator.permissions.query({ name: 'microphone' }).then(s => {
+      status = s
+      // Already granted by the time we check — retry immediately
+      if (s.state === 'granted') { handleMicRetry(); return }
+
+      s.addEventListener('change', check)
+
+      // Also poll every 2s in case the change event doesn't fire (Firefox, Safari)
+      interval = setInterval(() => {
+        navigator.permissions.query({ name: 'microphone' }).then(s2 => {
+          if (s2.state === 'granted') { clearInterval(interval); handleMicRetry() }
+        })
+      }, 2000)
+    }).catch(() => {})
+
+    // Cleanup: remove listener + clear interval — correctly placed as useEffect return
+    return () => {
+      if (status) status.removeEventListener('change', check)
+      clearInterval(interval)
+    }
+  }, [micBlocked, handleMicRetry])
+
+  // Handle mic orb tap — start or stop.
+  // Always go through handleMicRetry when starting (not startListening directly)
+  // so getUserMedia is called first. This:
+  //   1. Shows a prominent permission dialog on first use (instead of the subtle address-bar chip)
+  //   2. Ensures the mic stream is established before recognition attempts to start
+  //   3. Works correctly in incognito and other restricted contexts
+  const handleMicTap = useCallback(() => {
+    if (isListening) {
+      stopListening()
+    } else {
+      handleMicRetry()
+    }
+  }, [isListening, stopListening, handleMicRetry])
+
   useEffect(() => {
     const load = async () => {
       try {
@@ -240,26 +387,20 @@ export default function InterviewRoom() {
 
         if (data.status === 'completed' && data.debrief) {
           setDebrief(data.debrief)
-          const lastQ = (data.conversation || []).findLast ?
-            data.conversation.findLast(m => m.role === 'assistant') :
-            [...(data.conversation || [])].reverse().find(m => m.role === 'assistant')
+          const lastQ = (data.conversation || []).findLast
+            ? data.conversation.findLast(m => m.role === 'assistant')
+            : [...(data.conversation || [])].reverse().find(m => m.role === 'assistant')
           setCurrentQuestion(lastQ?.content || '')
           setRoomState(STATE.DEBRIEF)
           return
         }
 
-        // Get the first question from conversation
         const firstMsg = (data.conversation || [])[0]
-        if (firstMsg && firstMsg.role === 'assistant') {
+        if (firstMsg?.role === 'assistant') {
           setCurrentQuestion(firstMsg.content)
           setRoomState(STATE.SPEAKING)
           speak(firstMsg.content, {
-            onEnd: () => {
-              setTimeout(() => {
-                setRoomState(STATE.LISTENING)
-                startListening()
-              }, 600)
-            }
+            onEnd: () => setPendingListen(true),
           })
         } else {
           setRoomState(STATE.ERROR)
@@ -271,15 +412,33 @@ export default function InterviewRoom() {
       }
     }
     load()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionId])
+  }, [sessionId]) // eslint-disable-line
 
   const handleReRecord = () => {
     stopSpeaking()
     resetRecognition()
-    setIsSilent(false)
+    setTextAnswer('')
+    setMicBlocked(false)
+    setNoMicFound(false)
+    setCheckingMic(false)
     setRoomState(STATE.LISTENING)
-    startListening()
+    if (!useTextMode) handleMicRetry()
+  }
+
+  const handleTextSubmit = useCallback(async () => {
+    const text = textAnswer.trim()
+    if (!text) return
+    setTextAnswer('')
+    await handleFinalTranscript(text)
+  }, [textAnswer, handleFinalTranscript])
+
+  const handleManualSubmit = () => {
+    // submitNow fires the onFinalTranscript with whatever is confirmed so far
+    const submitted = submitNow()
+    if (!submitted) {
+      // Nothing confirmed yet — try text fallback
+      if (textAnswer.trim()) handleTextSubmit()
+    }
   }
 
   const handleEndEarly = async () => {
@@ -301,27 +460,25 @@ export default function InterviewRoom() {
 
   const statusLabel = () => {
     switch (roomState) {
-      case STATE.LOADING: return 'Loading session...'
-      case STATE.SPEAKING: return 'Interviewer is speaking...'
-      case STATE.LISTENING: return 'Your turn to answer...'
-      case STATE.PROCESSING: return 'Processing your answer...'
-      case STATE.DEBRIEF: return 'Interview Complete'
-      case STATE.ERROR: return 'Something went wrong'
+      case STATE.LOADING:     return 'Loading session...'
+      case STATE.SPEAKING:    return 'Interviewer is speaking...'
+      case STATE.LISTENING:   return useTextMode ? 'Type your answer below' : 'Your turn to answer...'
+      case STATE.PROCESSING:  return 'Processing your answer...'
+      case STATE.DEBRIEF:     return 'Interview Complete'
+      case STATE.ERROR:       return 'Something went wrong'
       default: return ''
     }
   }
 
-  // Format debrief text preserving line breaks
-  const formatDebrief = (text) => {
-    if (!text) return null
-    return text.split('\n').map((line, i) => (
-      <p key={i} style={{ margin: '0 0 10px', lineHeight: '1.7', color: line.trim() === '' ? 'transparent' : '#cbd5e1' }}>
-        {line || ' '}
-      </p>
-    ))
-  }
+  // Theme shorthands
+  const bg       = isDark ? 'bg-[#0f1117]'  : 'bg-[#f4f6fa]'
+  const cardBg   = isDark ? 'bg-[#1e2330]'  : 'bg-white'
+  const border   = isDark ? 'border-slate-700/60' : 'border-gray-300'
+  const textMain = isDark ? 'text-slate-100' : 'text-slate-900'
+  const textSub  = isDark ? 'text-slate-400' : 'text-slate-600'
+  const textMuted= isDark ? 'text-slate-600' : 'text-slate-400'
 
-  // Debrief state — full page takeover
+  // ─── DEBRIEF VIEW ────────────────────────────────────────────────────────────
   if (roomState === STATE.DEBRIEF) {
     const conversation = session?.conversation || []
     const qaPairs = []
@@ -332,103 +489,50 @@ export default function InterviewRoom() {
     }
 
     return (
-      <div style={{ minHeight: '100vh', background: '#0f1117', padding: '40px 24px', boxSizing: 'border-box' }}>
-        <div style={{ maxWidth: '720px', margin: '0 auto' }}>
-          <div style={{ textAlign: 'center', marginBottom: '40px' }}>
-            <div style={{
-              width: '64px',
-              height: '64px',
-              borderRadius: '50%',
-              background: 'linear-gradient(135deg, #10b981, #6366f1)',
-              margin: '0 auto 16px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontSize: '28px',
-            }}>
+      <div className={`min-h-screen ${bg} py-10 px-6`}>
+        <div className="max-w-2xl mx-auto">
+          {/* Hero */}
+          <div className="text-center mb-10">
+            <div className="w-16 h-16 rounded-full bg-gradient-to-br from-emerald-500 to-brand flex items-center justify-center text-3xl mx-auto mb-4 shadow-lg shadow-brand/20">
               ✓
             </div>
-            <h1 style={{ fontSize: '28px', fontWeight: '700', color: '#e2e8f0', marginBottom: '8px' }}>
-              Interview Complete
-            </h1>
-            <p style={{ color: '#64748b', fontSize: '15px' }}>
-              Here is your personalized feedback
-            </p>
+            <h1 className={`text-[28px] font-bold ${textMain} mb-2`}>Interview Complete</h1>
+            <p className={`${textSub} text-[15px]`}>Here is your personalized feedback</p>
           </div>
 
           {/* Debrief card */}
-          <div style={{
-            background: '#1e293b',
-            border: '1px solid #334155',
-            borderRadius: '12px',
-            padding: '28px',
-            marginBottom: '24px',
-          }}>
-            <h2 style={{ fontSize: '15px', fontWeight: '600', color: '#94a3b8', marginBottom: '20px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-              Feedback
-            </h2>
-            <div style={{ fontSize: '14px' }}>
-              {formatDebrief(debrief)}
+          <div className={`${cardBg} border ${border} rounded-2xl p-7 mb-5`}>
+            <h2 className={`text-xs font-bold uppercase tracking-widest ${textMuted} mb-5`}>Feedback</h2>
+            <div className={`text-sm ${textSub} leading-relaxed space-y-2.5`}>
+              {(debrief || '').split('\n').map((line, i) => (
+                <p key={i} className={line.trim() === '' ? 'h-2' : ''}>{line || null}</p>
+              ))}
             </div>
           </div>
 
           {/* Transcript toggle */}
-          <div style={{
-            background: '#1e293b',
-            border: '1px solid #334155',
-            borderRadius: '12px',
-            marginBottom: '24px',
-            overflow: 'hidden',
-          }}>
+          <div className={`${cardBg} border ${border} rounded-2xl mb-5 overflow-hidden`}>
             <button
               onClick={() => setShowTranscript(t => !t)}
-              style={{
-                width: '100%',
-                padding: '16px 20px',
-                background: 'transparent',
-                border: 'none',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-              }}
+              className={`w-full px-5 py-4 flex items-center justify-between transition-colors ${isDark ? 'hover:bg-slate-800/30' : 'hover:bg-slate-50'}`}
             >
-              <span style={{ color: '#94a3b8', fontSize: '14px', fontWeight: '600' }}>
+              <span className={`text-sm font-semibold ${textSub}`}>
                 View Full Transcript ({qaPairs.length} Q&A pairs)
               </span>
-              {showTranscript ? <ChevronUp size={16} color="#64748b" /> : <ChevronDown size={16} color="#64748b" />}
+              {showTranscript
+                ? <ChevronUp size={16} className={textMuted} />
+                : <ChevronDown size={16} className={textMuted} />
+              }
             </button>
 
             {showTranscript && (
-              <div style={{ padding: '0 20px 20px', borderTop: '1px solid #334155' }}>
+              <div className={`px-5 pb-5 border-t ${border}`}>
                 {qaPairs.map((pair, i) => (
-                  <div key={i} style={{ marginTop: '20px' }}>
-                    <div style={{
-                      color: '#a5b4fc',
-                      fontSize: '12px',
-                      fontWeight: '600',
-                      textTransform: 'uppercase',
-                      letterSpacing: '0.05em',
-                      marginBottom: '6px',
-                    }}>
-                      Q{i + 1}
-                    </div>
-                    <p style={{ color: '#e2e8f0', fontSize: '14px', margin: '0 0 8px', lineHeight: '1.6' }}>
-                      {pair.q}
-                    </p>
-                    <div style={{
-                      color: '#10b981',
-                      fontSize: '12px',
-                      fontWeight: '600',
-                      textTransform: 'uppercase',
-                      letterSpacing: '0.05em',
-                      marginBottom: '6px',
-                    }}>
-                      Your Answer
-                    </div>
-                    <p style={{ color: '#94a3b8', fontSize: '14px', margin: 0, lineHeight: '1.6' }}>
-                      {pair.a}
-                    </p>
+                  <div key={i} className="mt-5">
+                    <div className="text-[11px] font-bold uppercase tracking-wider text-brand mb-1.5">Q{i + 1}</div>
+                    <p className={`${textMain} text-sm leading-relaxed mb-2`}>{pair.q}</p>
+                    <div className="text-[11px] font-bold uppercase tracking-wider text-emerald-500 mb-1.5">Your Answer</div>
+                    <p className={`${textSub} text-sm leading-relaxed`}>{pair.a}</p>
                   </div>
                 ))}
               </div>
@@ -437,17 +541,7 @@ export default function InterviewRoom() {
 
           <button
             onClick={() => navigate('/interview')}
-            style={{
-              width: '100%',
-              padding: '14px',
-              borderRadius: '10px',
-              border: 'none',
-              background: '#6366f1',
-              color: '#fff',
-              fontSize: '15px',
-              fontWeight: '600',
-              cursor: 'pointer',
-            }}
+            className="w-full py-3.5 rounded-xl bg-brand hover:bg-brand-hover text-white font-semibold text-[15px] transition-colors"
           >
             Start New Interview
           </button>
@@ -456,33 +550,17 @@ export default function InterviewRoom() {
     )
   }
 
-  // Error state
+  // ─── ERROR VIEW ───────────────────────────────────────────────────────────────
   if (roomState === STATE.ERROR) {
     return (
-      <div style={{
-        minHeight: '100vh',
-        background: '#0f1117',
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: '24px',
-      }}>
-        <div style={{ color: '#ef4444', fontSize: '18px', marginBottom: '12px' }}>Something went wrong</div>
-        <div style={{ color: '#94a3b8', fontSize: '14px', marginBottom: '24px', textAlign: 'center', maxWidth: '400px' }}>
+      <div className={`min-h-screen ${bg} flex flex-col items-center justify-center px-6`}>
+        <div className="text-red-400 text-lg mb-3">Something went wrong</div>
+        <div className={`${textSub} text-sm mb-6 text-center max-w-sm`}>
           {errorMsg || micError || 'Unknown error'}
         </div>
         <button
           onClick={() => navigate('/interview')}
-          style={{
-            padding: '10px 24px',
-            borderRadius: '8px',
-            border: 'none',
-            background: '#6366f1',
-            color: '#fff',
-            fontSize: '14px',
-            cursor: 'pointer',
-          }}
+          className="px-6 py-2.5 rounded-lg bg-brand hover:bg-brand-hover text-white font-medium transition-colors"
         >
           Back to Interview Setup
         </button>
@@ -490,190 +568,275 @@ export default function InterviewRoom() {
     )
   }
 
-  // Main interview UI
+  // ─── MAIN INTERVIEW UI ────────────────────────────────────────────────────────
+  const isBlocked = endingEarly || roomState === STATE.LOADING || roomState === STATE.PROCESSING
+  const hasAnswer = transcript.trim().length > 0 || textAnswer.trim().length > 0
+
   return (
-    <div style={{
-      minHeight: '100vh',
-      background: '#0f1117',
-      display: 'flex',
-      flexDirection: 'column',
-      padding: '0',
-      margin: '-24px',
-      boxSizing: 'border-box',
-    }}>
+    <div className={`min-h-screen ${bg} flex flex-col`}>
       {/* Top bar */}
-      <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        padding: '16px 24px',
-        borderBottom: '1px solid #1e293b',
-        flexShrink: 0,
-      }}>
-        <div style={{ color: '#94a3b8', fontSize: '14px', fontWeight: '500' }}>
-          Mock Interview
-        </div>
-        <div style={{ color: '#e2e8f0', fontSize: '14px', fontWeight: '600' }}>
+      <div className={`flex items-center justify-between px-6 py-4 border-b ${isDark ? 'border-slate-800/80' : 'border-gray-200'} flex-shrink-0`}>
+        <div className={`${textMuted} text-sm font-medium`}>Mock Interview</div>
+
+        <div className={`${textMain} text-sm font-semibold`}>
           {roomState === STATE.LOADING ? '...' : `Question ${questionNumber} of ${totalQuestions}`}
         </div>
+
         <button
           onClick={handleEndEarly}
-          disabled={endingEarly || roomState === STATE.LOADING || roomState === STATE.PROCESSING}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '6px',
-            padding: '6px 12px',
-            borderRadius: '6px',
-            border: '1px solid #334155',
-            background: 'transparent',
-            color: '#94a3b8',
-            fontSize: '12px',
-            cursor: (endingEarly || roomState === STATE.LOADING || roomState === STATE.PROCESSING) ? 'not-allowed' : 'pointer',
-            opacity: (endingEarly || roomState === STATE.LOADING) ? 0.5 : 1,
-          }}
+          disabled={isBlocked}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs transition-colors disabled:opacity-40 disabled:cursor-not-allowed
+            ${isDark
+              ? 'border-slate-700 text-slate-500 hover:border-slate-600 hover:text-slate-400'
+              : 'border-gray-300 text-slate-500 hover:border-gray-400 hover:text-slate-600'
+            }`}
         >
           <X size={12} />
           {endingEarly ? 'Ending...' : 'End Early'}
         </button>
       </div>
 
-      {/* Main content */}
-      <div style={{
-        flex: 1,
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: '40px 24px',
-      }}>
+      {/* Center stage */}
+      <div className="flex-1 flex flex-col items-center justify-center px-6 py-12">
         {/* AI avatar */}
-        <div style={{
-          width: '80px',
-          height: '80px',
-          borderRadius: '50%',
-          background: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
-          marginBottom: '24px',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          fontSize: '32px',
-          boxShadow: roomState === STATE.SPEAKING ? '0 0 0 4px #6366f130, 0 0 0 8px #6366f115' : 'none',
-          transition: 'box-shadow 0.3s',
-        }}>
+        <div
+          className="w-20 h-20 rounded-full bg-gradient-to-br from-brand to-violet-500 flex items-center justify-center text-[32px] mb-6 transition-all duration-300"
+          style={{ boxShadow: roomState === STATE.SPEAKING ? '0 0 0 6px rgba(99,102,241,0.18), 0 0 0 12px rgba(99,102,241,0.08)' : 'none' }}
+        >
           🎙
         </div>
 
         {/* Status label */}
-        <div style={{
-          color: '#64748b',
-          fontSize: '13px',
-          fontWeight: '500',
-          textTransform: 'uppercase',
-          letterSpacing: '0.08em',
-          marginBottom: '16px',
-        }}>
+        <div className={`${textMuted} text-xs font-semibold uppercase tracking-widest mb-4`}>
           {statusLabel()}
         </div>
 
-        {/* Current question */}
+        {/* Current question text */}
         {roomState !== STATE.LOADING && (
-          <div style={{
-            maxWidth: '600px',
-            textAlign: 'center',
-            color: '#e2e8f0',
-            fontSize: '20px',
-            lineHeight: '1.6',
-            fontWeight: '400',
-            marginBottom: '40px',
-            minHeight: '80px',
-          }}>
+          <div className={`max-w-xl text-center ${textMain} text-xl leading-relaxed font-light mb-10 min-h-[80px]`}>
             {currentQuestion}
           </div>
         )}
 
         {/* Dynamic bottom section */}
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px', width: '100%', maxWidth: '480px' }}>
-          {roomState === STATE.LOADING && <Spinner />}
+        <div className="flex flex-col items-center gap-4 w-full max-w-md">
 
-          {roomState === STATE.SPEAKING && (
-            <WaveformBars active={isSpeaking} />
-          )}
+          {roomState === STATE.LOADING && <Spinner isDark={isDark} />}
+
+          {roomState === STATE.SPEAKING && <WaveformBars active={isSpeaking} isDark={isDark} />}
 
           {roomState === STATE.PROCESSING && (
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' }}>
-              <Spinner />
-              <div style={{ color: '#64748b', fontSize: '13px' }}>Thinking...</div>
+            <div className="flex flex-col items-center gap-3">
+              <Spinner isDark={isDark} />
+              <div className={`${textMuted} text-sm`}>Thinking...</div>
             </div>
           )}
 
           {roomState === STATE.LISTENING && (
             <>
-              <PulsingMic active={isListening} />
+              {/* ── Voice mode ── */}
+              {!useTextMode && (
+                <>
+                  {/* Mic permission blocked — step-by-step recovery */}
+                  {micBlocked ? (
+                    <div className={`w-full ${cardBg} border border-red-500/30 rounded-2xl px-6 py-7 flex flex-col items-center gap-5`}>
+                      <div className="w-14 h-14 rounded-full bg-red-500/10 flex items-center justify-center flex-shrink-0">
+                        <MicOff size={28} className="text-red-400" />
+                      </div>
 
-              {/* Live transcript box */}
-              <div style={{
-                width: '100%',
-                minHeight: '80px',
-                background: '#1e293b',
-                border: '1px solid #334155',
-                borderRadius: '10px',
-                padding: '14px 16px',
-                boxSizing: 'border-box',
-              }}>
-                {(transcript || interimTranscript) ? (
-                  <p style={{ margin: 0, color: '#94a3b8', fontSize: '14px', lineHeight: '1.6', fontStyle: 'italic' }}>
-                    {transcript}
-                    {interimTranscript && (
-                      <span style={{ color: '#475569' }}>{transcript ? ' ' : ''}{interimTranscript}</span>
-                    )}
-                  </p>
-                ) : (
-                  <p style={{ margin: 0, color: '#475569', fontSize: '14px', fontStyle: 'italic' }}>
-                    Listening... speak your answer
-                  </p>
-                )}
-              </div>
+                      <div className="w-full space-y-3">
+                        <p className="text-red-400 font-semibold text-sm text-center mb-1">Microphone access blocked</p>
 
-              {/* Countdown bar */}
-              {isSilent && transcript.length > 0 && (
-                <div style={{ width: '100%' }}>
-                  <CountdownBar running={isSilent} silenceMs={2000} />
-                  <div style={{ color: '#64748b', fontSize: '12px', textAlign: 'center', marginTop: '6px' }}>
-                    Submitting in 2s...
-                  </div>
-                </div>
+                        {/* Step 1 */}
+                        <div className={`flex items-start gap-3 ${isDark ? 'bg-slate-800/50' : 'bg-slate-100'} rounded-xl px-4 py-3`}>
+                          <span className="text-brand font-bold text-sm mt-0.5 flex-shrink-0">1</span>
+                          <p className={`text-xs ${textSub} leading-relaxed`}>
+                            Click the <strong>🔒 lock icon</strong> in your browser address bar and set <strong>Microphone → Allow</strong>
+                          </p>
+                        </div>
+
+                        {/* Step 2 */}
+                        <div className={`flex items-start gap-3 ${isDark ? 'bg-slate-800/50' : 'bg-slate-100'} rounded-xl px-4 py-3`}>
+                          <span className="text-brand font-bold text-sm mt-0.5 flex-shrink-0">2</span>
+                          <p className={`text-xs ${textSub} leading-relaxed`}>
+                            Click <strong>Try Again</strong> below. If it's still blocked, use the reload link to apply the new permission.
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex gap-2 w-full">
+                        <button
+                          onClick={handleMicRetry}
+                          className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg bg-brand hover:bg-brand-hover text-white text-sm font-semibold transition-colors"
+                        >
+                          <Mic size={14} /> Try Again
+                        </button>
+                        <button
+                          onClick={() => setUseTextMode(true)}
+                          className={`flex-1 py-2.5 rounded-lg border text-sm transition-colors
+                            ${isDark ? 'border-slate-700 text-slate-400 hover:border-slate-600' : 'border-gray-300 text-slate-600 hover:border-gray-400'}`}
+                        >
+                          Type Instead
+                        </button>
+                      </div>
+                      <button
+                        onClick={() => window.location.reload()}
+                        className={`text-xs ${textMuted} underline underline-offset-2 hover:opacity-70 transition-opacity`}
+                      >
+                        Still blocked? Reload the page
+                      </button>
+                    </div>
+                  ) : checkingMic ? (
+                    /* Checking mic — show spinner so user sees something is happening */
+                    <div className="flex flex-col items-center gap-3">
+                      <Spinner isDark={isDark} />
+                      <div className={`${textMuted} text-sm`}>Checking microphone…</div>
+                    </div>
+                  ) : (
+                    <>
+                      {/* Big tap-to-record mic orb */}
+                      <PulsingMic
+                        active={isListening}
+                        onClick={handleMicTap}
+                        isDark={isDark}
+                        label={isListening ? 'Recording — tap to stop' : 'Tap to start recording'}
+                      />
+
+                      {/* Live transcript box */}
+                      <div className={`w-full min-h-[80px] ${cardBg} border ${isDark ? 'border-slate-700/60' : 'border-gray-300'} rounded-xl px-4 py-3.5`}>
+                        {(transcript || interimTranscript) ? (
+                          <p className={`${textSub} text-sm leading-relaxed italic m-0`}>
+                            {transcript}
+                            {interimTranscript && (
+                              <span className={textMuted}>{transcript ? ' ' : ''}{interimTranscript}</span>
+                            )}
+                          </p>
+                        ) : (
+                          <p className={`${textMuted} text-sm italic m-0`}>
+                            {isListening ? 'Listening… speak your answer' : 'Tap the mic above to start recording'}
+                          </p>
+                        )}
+                      </div>
+
+                      {/* Silence countdown bar */}
+                      {isSilenceWindowActive && (
+                        <div className="w-full">
+                          <CountdownBar running={isSilenceWindowActive} silenceMs={3000} isDark={isDark} />
+                          <div className={`${textMuted} text-xs text-center mt-1.5`}>
+                            Auto-submitting in 3s… or click Submit now
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Action row */}
+                      <div className="flex items-center gap-2 w-full">
+                        <button
+                          onClick={handleReRecord}
+                          className={`flex items-center gap-1.5 px-4 py-2 rounded-lg border text-sm transition-colors
+                            ${isDark
+                              ? 'border-slate-700 text-slate-500 hover:border-slate-600 hover:text-slate-400'
+                              : 'border-gray-300 text-slate-500 hover:border-gray-400 hover:text-slate-600'
+                            }`}
+                        >
+                          <RefreshCw size={13} /> Re-record
+                        </button>
+
+                        <button
+                          onClick={handleManualSubmit}
+                          disabled={!hasAnswer}
+                          className="flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-brand hover:bg-brand-hover text-white text-sm font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                        >
+                          <Send size={13} /> Submit Answer
+                        </button>
+                      </div>
+
+                      {/* Switch to text mode */}
+                      <button
+                        onClick={() => { stopListening(); setUseTextMode(true) }}
+                        className={`text-xs ${textMuted} underline underline-offset-2 hover:opacity-70 transition-opacity`}
+                      >
+                        Having mic issues? Type instead
+                      </button>
+
+                      {/* Non-permission mic error (transient — e.g. network hiccup) */}
+                      {micError && !micBlocked && micError !== 'mic-not-allowed' && micError !== 'mic-service-not-allowed' && micError !== 'mic-not-found' && (
+                        <div className="text-amber-400 text-xs text-center">{micError}</div>
+                      )}
+                    </>
+                  )}
+                </>
               )}
 
-              {/* Re-record button */}
-              <button
-                onClick={handleReRecord}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  padding: '8px 16px',
-                  borderRadius: '8px',
-                  border: '1px solid #334155',
-                  background: 'transparent',
-                  color: '#94a3b8',
-                  fontSize: '13px',
-                  cursor: 'pointer',
-                }}
-              >
-                <RefreshCw size={13} />
-                Re-record
-              </button>
+              {/* ── Text input mode ── */}
+              {useTextMode && (
+                <>
+                  {/* No microphone hardware found (or macOS blocked it at OS level) */}
+                  {noMicFound && (
+                    <div className={`w-full flex items-start gap-2 text-xs ${isDark ? 'bg-slate-800/60 text-slate-300 border-slate-700/60' : 'bg-slate-100 text-slate-700 border-slate-300'} border rounded-lg px-3 py-2.5`}>
+                      <span className="flex-shrink-0 mt-0.5">🎤</span>
+                      <div className="space-y-1">
+                        <span className="block">No microphone was detected. Text mode is active — your interview continues normally.</span>
+                        <span className={`block ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                          On Mac: <strong>System Settings → Privacy &amp; Security → Microphone</strong> and enable your browser. Then tap <strong>Use mic</strong>.
+                        </span>
+                      </div>
+                    </div>
+                  )}
 
-              {micError && (
-                <div style={{ color: '#ef4444', fontSize: '12px', textAlign: 'center' }}>
-                  {micError}
-                </div>
+                  {/* Show why we fell back to text mode (e.g. incognito speech service block) */}
+                  {!noMicFound && micError === 'mic-service-not-allowed' && (
+                    <div className={`w-full flex items-start gap-2 text-xs ${isDark ? 'bg-amber-900/20 text-amber-300 border-amber-700/40' : 'bg-amber-50 text-amber-700 border-amber-200'} border rounded-lg px-3 py-2.5`}>
+                      <span className="flex-shrink-0 mt-0.5">⚠️</span>
+                      <span>Speech recognition is unavailable in this browser context (e.g. incognito mode). Text mode is active — your interview continues normally.</span>
+                    </div>
+                  )}
+                  <textarea
+                    className={`w-full min-h-[120px] ${cardBg} border ${border} rounded-xl px-4 py-3.5 text-sm leading-relaxed resize-none focus:outline-none focus:ring-2 focus:ring-brand/50 ${textMain}`}
+                    placeholder="Type your answer here…"
+                    value={textAnswer}
+                    onChange={e => setTextAnswer(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleTextSubmit()
+                    }}
+                    autoFocus
+                  />
+
+                  <div className="flex items-center gap-2 w-full">
+                    {isSupported && (
+                      <button
+                        onClick={() => {
+                          console.log('[MIC] Use mic button clicked')
+                          setMicBlocked(false)
+                          setNoMicFound(false)
+                          setUseTextMode(false)
+                          handleMicRetry()
+                        }}
+                        className={`flex items-center gap-1.5 px-4 py-2 rounded-lg border text-sm transition-colors
+                          ${isDark
+                            ? 'border-slate-700 text-slate-500 hover:border-slate-600 hover:text-slate-400'
+                            : 'border-gray-300 text-slate-500 hover:border-gray-400 hover:text-slate-600'
+                          }`}
+                      >
+                        <Mic size={13} /> Use mic
+                      </button>
+                    )}
+
+                    <button
+                      onClick={handleTextSubmit}
+                      disabled={!textAnswer.trim()}
+                      className="flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-brand hover:bg-brand-hover text-white text-sm font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      <Send size={13} /> Submit Answer
+                    </button>
+                  </div>
+
+                  <div className={`text-xs ${textMuted}`}>⌘ + Enter to submit</div>
+                </>
               )}
 
               {!isSupported && (
-                <div style={{ color: '#f59e0b', fontSize: '12px', textAlign: 'center' }}>
-                  Speech recognition not supported. Please use Chrome.
+                <div className="text-amber-500 text-xs text-center bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2">
+                  ⚠️ Speech recognition requires Google Chrome. Text mode is active.
                 </div>
               )}
             </>

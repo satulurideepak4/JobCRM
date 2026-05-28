@@ -1,4 +1,6 @@
 import { useNavigate } from 'react-router-dom'
+import { useTheme } from '../contexts/ThemeContext'
+import { cn } from '../lib/utils'
 
 const COLUMNS = [
   { key: 'cold_email_sent',        label: 'Cold Email',   color: '#6366f1' },
@@ -13,30 +15,27 @@ const COLUMNS = [
 
 function KanbanCard({ company }) {
   const navigate = useNavigate()
+  const { isDark } = useTheme()
   return (
     <div
       onClick={() => navigate(`/applications?highlight=${company.id}`)}
-      style={{
-        background: 'var(--card)',
-        border: '1px solid var(--border)',
-        borderRadius: '8px',
-        padding: '10px 12px',
-        cursor: 'pointer',
-        transition: 'box-shadow 0.15s, border-color 0.15s',
-      }}
-      onMouseEnter={e => {
-        e.currentTarget.style.borderColor = '#6366f1'
-        e.currentTarget.style.boxShadow = '0 2px 8px rgba(99,102,241,0.12)'
-      }}
-      onMouseLeave={e => {
-        e.currentTarget.style.borderColor = 'var(--border)'
-        e.currentTarget.style.boxShadow = 'none'
-      }}
+      className={cn(
+        'group rounded-lg px-3 py-2.5 cursor-pointer transition-all duration-150 border',
+        isDark
+          ? 'bg-dark-card border-dark-border hover:border-brand hover:shadow-md hover:shadow-brand/10'
+          : 'bg-white border-gray-300 hover:border-brand hover:shadow-sm shadow-sm',
+      )}
     >
-      <div style={{ fontSize: '13px', fontWeight: '600', color: 'var(--text)', marginBottom: '3px' }}>
+      <div className={cn(
+        'text-[13px] font-semibold mb-0.5 truncate',
+        isDark ? 'text-slate-200' : 'text-slate-800',
+      )}>
         {company.name}
       </div>
-      <div style={{ fontSize: '11px', color: 'var(--text-4)' }}>
+      <div className={cn(
+        'text-[11px]',
+        isDark ? 'text-slate-500' : 'text-slate-500',
+      )}>
         {company.days_since_update}d ago · {company.source}
       </div>
     </div>
@@ -44,34 +43,44 @@ function KanbanCard({ company }) {
 }
 
 export default function KanbanBoard({ kanban = {} }) {
+  const { isDark } = useTheme()
   return (
-    <div style={{ display: 'flex', gap: '10px', overflowX: 'auto', paddingBottom: '8px' }}>
+    <div className="flex gap-2.5 overflow-x-auto pb-2">
       {COLUMNS.map(col => {
         const cards = kanban[col.key] || []
         return (
-          <div key={col.key} style={{
-            minWidth: '170px',
-            background: 'var(--bg)',
-            borderRadius: '10px',
-            border: '1px solid var(--border)',
-            overflow: 'hidden',
-          }}>
-            <div style={{
-              padding: '10px 12px',
-              background: col.color + '12',
-              borderBottom: `2px solid ${col.color}`,
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-            }}>
-              <span style={{ fontSize: '11px', fontWeight: '700', color: col.color, textTransform: 'uppercase', letterSpacing: '0.3px' }}>{col.label}</span>
-              <span style={{ fontSize: '11px', background: col.color + '20', color: col.color, borderRadius: '12px', padding: '1px 7px', fontWeight: '600' }}>
+          <div key={col.key} className={cn(
+            'min-w-[170px] rounded-xl border overflow-hidden flex-shrink-0',
+            isDark ? 'bg-dark-surface border-dark-border' : 'bg-slate-50 border-gray-300',
+          )}>
+            {/* Column header */}
+            <div
+              className="px-3 py-2.5 flex items-center justify-between border-b-2"
+              style={{ background: col.color + '18', borderBottomColor: col.color }}
+            >
+              <span
+                className="text-[10px] font-bold uppercase tracking-wider"
+                style={{ color: col.color }}
+              >
+                {col.label}
+              </span>
+              <span
+                className="text-[11px] font-bold rounded-full px-2 py-0.5"
+                style={{ background: col.color + '25', color: col.color }}
+              >
                 {cards.length}
               </span>
             </div>
-            <div style={{ padding: '8px', display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '280px', overflowY: 'auto' }}>
+
+            {/* Cards */}
+            <div className="p-2 flex flex-col gap-1.5 max-h-[280px] overflow-y-auto">
               {cards.length === 0 ? (
-                <div style={{ fontSize: '12px', color: 'var(--text-4)', padding: '8px', textAlign: 'center' }}>Empty</div>
+                <div className={cn(
+                  'text-xs text-center py-3',
+                  isDark ? 'text-slate-600' : 'text-slate-500',
+                )}>
+                  Empty
+                </div>
               ) : (
                 cards.map(c => <KanbanCard key={c.id} company={c} />)
               )}

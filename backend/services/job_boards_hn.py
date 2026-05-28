@@ -2,7 +2,12 @@
 HN Who's Hiring scraper.
 Every month YC posts "Ask HN: Who is hiring?" — fetches the latest 2 months,
 parses each comment into a structured job, and filters by profile keywords + location.
-Free public API, no auth, no rate limits worth worrying about.
+Free public API, no auth, no meaningful rate limits.
+
+Fixes applied:
+- skill_matched threshold raised 1 → 2 (was too permissive)
+- Added fallback parser for free-form (non-pipe) posts
+- Better location extraction
 """
 import asyncio
 import hashlib
@@ -13,9 +18,7 @@ from typing import List, Dict, Optional
 import httpx
 
 HN_BASE = "https://hacker-news.firebaseio.com/v0"
-HN_ALGOLIA = "https://hn.algolia.com/api/v1/search_by_date"
 
-# Reuse same location sets as other scrapers
 ALLOWED_LOCATIONS = {
     "remote", "worldwide", "anywhere", "global", "us", "usa", "united states",
     "canada", "north america", "us/canada", "usa/canada",
@@ -45,7 +48,7 @@ def _is_allowed_location(location: str) -> bool:
         return True
     if "remote" in loc:
         return True
-    return True  # unknown → allow, local_filter will further judge
+    return True
 
 
 def _dedup_key(company: str, title: str) -> str:
@@ -60,11 +63,10 @@ def _strip_html(text: str) -> str:
 
 
 def _extract_salary(text: str) -> str:
-    """Pull salary range like $120k-$160k or $120,000 - $160,000."""
     patterns = [
-        r"\$[\d,]+k?\s*[-–to]+\s*\$[\d,]+k?",   # $120k-$160k
-        r"\$[\d,]+\s*[-–to]+\s*\$[\d,]+",          # $120,000-$160,000
-        r"\$[\d,]+k",                               # $120k standalone
+        r"\$[\d,]+k?\s*[-–to]+\s*\$[\d,]+k?",
+        r"\$[\d,]+\s*[-–to]+\s*\$[\d,]+",
+        r"\$[\d,]+k",
     ]
     for pat in patterns:
         m = re.search(pat, text, re.IGNORECASE)
@@ -74,21 +76,98 @@ def _extract_salary(text: str) -> str:
 
 
 def _extract_apply_url(text: str) -> str:
-    """Get the first https:// URL in the comment (usually the apply link)."""
-    m = re.search(r"https?://\S+", text)
-    if m:
-        url = m.group().rstrip(".,);>\"'")
-        return url
+    # Skip HN links themselves as apply URL, prefer external URLs
+    urls = re.findall(r"https?://\S+", text)
+    for url in urls:
+        url = url.rstrip(".,);>\"'")
+        if "news.ycombinator.com" not in url:
+            return url
+    # Fallback to any URL
+    if urls:
+        return urls[0].rstrip(".,);>\"'")
     return ""
+
+
+def _parse_comment_pipe(comment_id: int, text: str, lines: List[str]) -> Optional[Dict]:
+    """Parse structured pipe-format HN posts: Company | Role | Location | ..."""
+    first_line = lines[0]
+    parts = [p.strip() for p in first_line.split("|")]
+
+    if len(parts) < 2:
+        return None
+
+    company = parts[0].strip()
+    if not company or len(company) > 100:
+        return None
+
+    title = parts[1].strip()
+    if not title or len(title) < 3:
+        return None
+
+    # Extract location from remaining pipe parts
+    location = ""
+    for part in parts[2:]:
+        p = part.lower()
+        if any(kw in p for kw in ["remote", "onsite", "on-site", "hybrid", "anywhere",
+                                    "worldwide", "us", "usa", "ny", "sf", "ca", "canada",
+                                    "new york", "san francisco", "austin", "seattle",
+                                    "chicago", "toronto", "boston"]):
+            location = part.strip()
+            break
+    if not location and len(parts) > 2:
+        location = parts[2].strip()
+
+    return company, title, location
+
+
+def _parse_comment_freeform(comment_id: int, text: str, lines: List[str]) -> Optional[Dict]:
+    """
+    Fallback parser for free-form HN posts like:
+    'Acme Inc (acme.com) | Hiring backend engineers | Remote'
+    or
+    'We are Acme, a Series A fintech startup. Looking for senior backend engineers...'
+    """
+    first_line = lines[0]
+
+    # Pattern 1: "CompanyName is hiring [role]" or "CompanyName | hiring..."
+    hiring_match = re.search(
+        r'^(.{2,60}?)\s*(?:is\s+)?(?:hiring|looking for|seeking)\s+(?:a\s+|an\s+)?(.{5,80})',
+        first_line, re.IGNORECASE
+    )
+    if hiring_match:
+        company = hiring_match.group(1).strip().rstrip('(|-').strip()
+        title = hiring_match.group(2).strip().rstrip('.,!').strip()
+        if company and title and len(company) < 80:
+            return company, title[:80], ""
+
+    # Pattern 2: "CompanyName (url) | Role"
+    parens_match = re.match(r'^(.{2,60}?)\s*\([^)]+\)\s*[|-]\s*(.{5,80})', first_line)
+    if parens_match:
+        company = parens_match.group(1).strip()
+        title = parens_match.group(2).strip()
+        if company and title:
+            return company, title[:80], ""
+
+    # Pattern 3: first word(s) before comma or colon are the company
+    # "Acme, Series A startup, hiring senior backend engineers"
+    comma_match = re.match(r'^([A-Z][^,.\n]{2,40}),\s*(?:Series [A-Z]|Seed|YC|YCombinator|startup)', first_line)
+    if comma_match:
+        company = comma_match.group(1).strip()
+        # Find role in rest of text
+        role_match = re.search(
+            r'(?:hiring|looking for|need|seeking)\s+(?:a\s+|an\s+)?([^.!\n]{5,60})',
+            text, re.IGNORECASE
+        )
+        if role_match:
+            title = role_match.group(1).strip()
+            return company, title[:80], ""
+
+    return None
 
 
 def _parse_comment(comment_id: int, raw_text: str) -> Optional[Dict]:
     """
-    Parse a single HN comment into a structured job dict.
-    Typical format (first line):
-        Company | Role | Location | Type | $salary
-    or:
-        Company | Role | Location | REMOTE | Full-time | $salary
+    Parse a single HN Who's Hiring comment into a structured job dict.
     Returns None if the comment doesn't look like a job post.
     """
     text = _strip_html(raw_text)
@@ -96,42 +175,40 @@ def _parse_comment(comment_id: int, raw_text: str) -> Optional[Dict]:
         return None
 
     lines = [l.strip() for l in text.split("\n") if l.strip()]
-    first_line = lines[0]
-
-    # Must have at least 2 pipe-separated parts to be a job post
-    parts = [p.strip() for p in first_line.split("|")]
-    if len(parts) < 2:
+    if not lines:
         return None
 
-    company = parts[0].strip()
-    if not company or len(company) > 80:
+    company = title = location = ""
+
+    # Try pipe format first (most common in HN hiring threads)
+    pipe_result = _parse_comment_pipe(comment_id, text, lines)
+    if pipe_result:
+        company, title, location = pipe_result
+    else:
+        # Try free-form parsing
+        freeform_result = _parse_comment_freeform(comment_id, text, lines)
+        if freeform_result:
+            company, title, location = freeform_result
+        else:
+            return None  # Can't reliably identify company or title
+
+    if not company or not title:
         return None
 
-    title = parts[1].strip() if len(parts) > 1 else ""
-    if not title:
-        return None
-
-    # Location: look through remaining parts for location keywords
-    location = ""
-    for part in parts[2:]:
-        p = part.lower()
-        if any(kw in p for kw in ["remote", "onsite", "hybrid", "us", "ny", "sf", "ca", "canada",
-                                    "new york", "san francisco", "austin", "seattle", "chicago",
-                                    "toronto", "anywhere", "worldwide"]):
-            location = part.strip()
-            break
-    if not location and len(parts) > 2:
-        location = parts[2].strip()
+    # Try to find remote indication in the full text
+    if not location:
+        if re.search(r'\b(remote|work from home|wfh|distributed team)\b', text, re.IGNORECASE):
+            location = "Remote"
+        elif re.search(r'\b(us only|united states|north america)\b', text, re.IGNORECASE):
+            location = "US"
 
     salary = _extract_salary(text)
     apply_url = _extract_apply_url(text)
 
-    # Use the HN comment URL as fallback apply link
     if not apply_url:
         apply_url = f"https://news.ycombinator.com/item?id={comment_id}"
 
-    # Description: everything after the first line
-    description = " ".join(lines[1:])[:3000]
+    description = " ".join(lines[1:])[:3000] if len(lines) > 1 else text[:3000]
 
     return {
         "title": title,
@@ -145,47 +222,42 @@ def _parse_comment(comment_id: int, raw_text: str) -> Optional[Dict]:
         "source_url": apply_url,
         "tags": [],
         "dedup_key": _dedup_key(company, title),
-        "_raw_first_line": first_line,  # used for keyword matching, stripped before saving
+        "_raw_first_line": lines[0],
     }
 
 
 def _is_relevant(job: Dict, role_keywords: List[str], skill_keywords: List[str]) -> bool:
     """
-    Relevance check against the user's profile.
-    Checks title + first_line + description.
-    Passes if: role keyword appears anywhere in the first line,
-               OR at least 1 skill appears in the post.
+    Relevance check against user profile.
+    Requires: role keyword in first line OR at least 2 skill matches in full post.
+    (Raised from 1 to 2 — was too permissive with a single common skill like "python")
     """
     title_lower = job["title"].lower()
     first_line_lower = job.get("_raw_first_line", "").lower()
-    # Use 2000 chars to catch skills mentioned later in longer posts
     desc_lower = (job["description"] or "")[:2000].lower()
     combined = f"{title_lower} {first_line_lower} {desc_lower}"
 
-    # Role keyword anywhere in the full first line (not just the title segment)
     role_in_first_line = any(kw in first_line_lower for kw in role_keywords)
 
-    # At least 1 skill appears anywhere in the post
+    # Require 2+ skill matches to reduce false positives from common words
     skills_matched = sum(1 for s in skill_keywords if s in combined)
 
-    return role_in_first_line or skills_matched >= 1
+    return role_in_first_line or skills_matched >= 2
 
 
 async def _get_hiring_thread_ids(client: httpx.AsyncClient, months: int = 2) -> List[int]:
     """Get the last N months of 'Who is hiring' thread IDs via HN Firebase API."""
     try:
-        # whoishiring user posts these threads — get their submitted list
         resp = await client.get(f"{HN_BASE}/user/whoishiring/submitted.json", timeout=10)
         if resp.status_code != 200:
             return []
         all_ids = resp.json()
-        # First item is the latest thread, alternate items are "who wants to be hired"
-        # Filter: only hiring threads (who is hiring, not who wants to be hired)
-        # Strategy: fetch metadata for first 6 IDs and pick the hiring ones
+
         thread_ids = []
-        check_ids = all_ids[:10]
+        check_ids = all_ids[:12]  # Check first 12 to find N hiring threads
         tasks = [client.get(f"{HN_BASE}/item/{tid}.json", timeout=8) for tid in check_ids]
         responses = await asyncio.gather(*tasks, return_exceptions=True)
+
         for resp in responses:
             if isinstance(resp, Exception):
                 continue
@@ -197,6 +269,7 @@ async def _get_hiring_thread_ids(client: httpx.AsyncClient, months: int = 2) -> 
                 thread_ids.append(data["id"])
             if len(thread_ids) >= months:
                 break
+
         return thread_ids
     except Exception as e:
         print(f"HN thread ID fetch error: {e}")
@@ -204,7 +277,7 @@ async def _get_hiring_thread_ids(client: httpx.AsyncClient, months: int = 2) -> 
 
 
 async def _fetch_thread_comments(client: httpx.AsyncClient, thread_id: int) -> List[Dict]:
-    """Fetch all top-level comment IDs for a thread, then fetch each comment."""
+    """Fetch all top-level comments for a thread."""
     try:
         resp = await client.get(f"{HN_BASE}/item/{thread_id}.json", timeout=10)
         if resp.status_code != 200:
@@ -214,7 +287,6 @@ async def _fetch_thread_comments(client: httpx.AsyncClient, thread_id: int) -> L
         if not kid_ids:
             return []
 
-        # Fetch comments in chunks of 50 to stay polite
         comments = []
         chunk_size = 50
         for i in range(0, len(kid_ids), chunk_size):
@@ -229,7 +301,6 @@ async def _fetch_thread_comments(client: httpx.AsyncClient, thread_id: int) -> L
                 data = result.json()
                 if data and not data.get("dead") and not data.get("deleted"):
                     comments.append(data)
-            # Small pause between chunks to be a good citizen
             await asyncio.sleep(0.1)
 
         return comments
@@ -246,14 +317,13 @@ async def fetch_hn_hiring(profile: Dict) -> List[Dict]:
     role = (profile.get("role") or "").lower().strip()
     skills = [s.lower().strip() for s in (profile.get("skills") or [])]
 
-    # Build keyword sets for matching
-    # Role keywords: meaningful words only (skip stop words)
-    stop_words = {"and", "or", "the", "for", "with", "from", "senior", "junior", "lead", "staff"}
+    stop_words = {"and", "or", "the", "for", "with", "from", "senior", "junior",
+                  "lead", "staff", "principal", "associate"}
     role_keywords = [w for w in role.split() if len(w) > 2 and w not in stop_words]
     if not role_keywords and role:
         role_keywords = [role]
 
-    skill_keywords = skills[:15]  # top 15 skills for matching
+    skill_keywords = skills[:15]
 
     if not role_keywords and not skill_keywords:
         print("HN Hiring: no profile keywords, skipping")
@@ -264,7 +334,6 @@ async def fetch_hn_hiring(profile: Dict) -> List[Dict]:
 
     limits = httpx.Limits(max_connections=30, max_keepalive_connections=20)
     async with httpx.AsyncClient(limits=limits, timeout=30) as client:
-        # Step 1: get thread IDs
         thread_ids = await _get_hiring_thread_ids(client, months=2)
         if not thread_ids:
             print("HN Hiring: could not find thread IDs")
@@ -272,7 +341,6 @@ async def fetch_hn_hiring(profile: Dict) -> List[Dict]:
 
         print(f"HN Hiring: found {len(thread_ids)} threads: {thread_ids}")
 
-        # Step 2: fetch all comments from each thread
         for thread_id in thread_ids:
             comments = await _fetch_thread_comments(client, thread_id)
             print(f"HN Hiring: thread {thread_id} has {len(comments)} comments")
@@ -286,21 +354,17 @@ async def fetch_hn_hiring(profile: Dict) -> List[Dict]:
                 if not job:
                     continue
 
-                # Location filter
                 if not _is_allowed_location(job["location"]):
                     continue
 
-                # Profile relevance filter (strict)
                 if not _is_relevant(job, role_keywords, skill_keywords):
                     continue
 
-                # Dedup
                 key = job["dedup_key"]
                 if key in seen_keys:
                     continue
                 seen_keys.add(key)
 
-                # Clean up internal-only field before returning
                 job.pop("_raw_first_line", None)
                 results.append(job)
 

@@ -13,7 +13,6 @@ RAPIDAPI_KEY = os.getenv("RAPIDAPI_KEY", "")
 ALLOWED_LOCATIONS = {
     "remote", "worldwide", "anywhere", "global", "us", "usa", "united states",
     "canada", "north america", "us/canada", "usa/canada",
-    # US timezones
     "est", "cst", "mst", "pst", "pt", "ct", "mt", "et",
     "eastern", "central", "mountain", "pacific",
     "utc-4", "utc-5", "utc-6", "utc-7", "utc-8",
@@ -22,7 +21,6 @@ ALLOWED_LOCATIONS = {
     "toronto", "vancouver", "montreal",
 }
 
-# Locations to explicitly exclude
 BLOCKED_LOCATIONS = {
     "uk", "united kingdom", "europe", "eu", "germany", "france", "spain",
     "netherlands", "sweden", "norway", "denmark", "finland", "poland",
@@ -30,7 +28,6 @@ BLOCKED_LOCATIONS = {
     "brazil", "mexico", "argentina", "latin america", "apac", "emea",
 }
 
-# Stop words that don't help with matching
 _STOP_WORDS = {"and", "or", "the", "for", "with", "from", "senior", "junior",
                "lead", "staff", "principal", "associate", "remote", "full", "time"}
 
@@ -45,7 +42,6 @@ def _is_allowed_location(location: str) -> bool:
         return True
     if "remote" in loc:
         return True
-    # Unknown locations — allow by default; local_filter acts as final gate
     return True
 
 
@@ -55,29 +51,20 @@ def _dedup_key(company_name: str, title: str) -> str:
 
 
 def _build_keyword_sets(profile: Dict):
-    """
-    Returns (role_keywords, skill_keywords) from a profile dict.
-    role_keywords: meaningful words from the role string
-    skill_keywords: all skills lowercased
-    """
     role = (profile.get("role") or "").lower()
     skills = [s.lower().strip() for s in (profile.get("skills") or []) if s]
-
     role_keywords = [w for w in role.split() if len(w) > 2 and w not in _STOP_WORDS]
     if not role_keywords and role:
         role_keywords = [role]
-
     return role_keywords, skills
 
 
 def _is_relevant_job(title: str, description: str, tags: List[str],
                      role_keywords: List[str], skill_keywords: List[str]) -> bool:
     """
-    Shared relevance check used by all scrapers.
-    Passes if:
-      - Role keyword appears in the job title, OR
-      - At least 2 profile skill keywords appear anywhere in title+tags+description
-    This catches both exact-role matches and adjacent-skill matches.
+    Shared relevance check. Passes if:
+      - Role keyword in job title, OR
+      - At least 2 profile skills anywhere in title+tags+description
     """
     title_l = title.lower()
     desc_l = (description or "")[:800].lower()
@@ -90,6 +77,8 @@ def _is_relevant_job(title: str, description: str, tags: List[str],
     skill_hits = sum(1 for s in skill_keywords if s in combined)
     return skill_hits >= 2
 
+
+# ── Remotive ──────────────────────────────────────────────────────────────────
 
 async def fetch_remotive(queries: List[Dict], profile: Dict) -> List[Dict]:
     role_keywords, skill_keywords = _build_keyword_sets(profile)
@@ -142,13 +131,22 @@ async def fetch_remotive(queries: List[Dict], profile: Dict) -> List[Dict]:
     return results
 
 
+# ── Arbeitnow ─────────────────────────────────────────────────────────────────
+
 async def fetch_arbeitnow(queries: List[Dict], profile: Dict) -> List[Dict]:
+    """
+    Arbeitnow free job board API.
+    Fetches all 7 pages (~700 total jobs). Each page has ~7-14 remote-eligible jobs
+    that survive the location filter, so all 7 pages are needed for decent coverage.
+    NOTE: Arbeitnow's API does not support text search params — filtering is done
+    entirely via _is_relevant_job after fetching.
+    """
     role_keywords, skill_keywords = _build_keyword_sets(profile)
     results = []
     seen_keys = set()
 
     async with httpx.AsyncClient(timeout=30) as client:
-        for page in range(1, 8):
+        for page in range(1, 8):  # pages 1–7
             try:
                 resp = await client.get(
                     "https://www.arbeitnow.com/api/job-board-api",
@@ -160,6 +158,7 @@ async def fetch_arbeitnow(queries: List[Dict], profile: Dict) -> List[Dict]:
                 jobs = data.get("data", [])
                 if not jobs:
                     break
+
                 for job in jobs:
                     location = job.get("location", "Remote")
                     if not _is_allowed_location(location):
@@ -196,9 +195,10 @@ async def fetch_arbeitnow(queries: List[Dict], profile: Dict) -> List[Dict]:
     return results
 
 
+# ── JSearch (RapidAPI) ────────────────────────────────────────────────────────
+
 async def fetch_jsearch(profile: Dict) -> List[Dict]:
     if not RAPIDAPI_KEY:
-        print("RAPIDAPI_KEY not set, skipping JSearch")
         return []
 
     role = profile.get("role", "")
@@ -233,6 +233,7 @@ async def fetch_jsearch(profile: Dict) -> List[Dict]:
                 jobs = data.get("data", [])
                 if not jobs:
                     break
+
                 for job in jobs:
                     location = job.get("job_city") or job.get("job_country") or "Remote"
                     if not _is_allowed_location(location):
@@ -275,18 +276,146 @@ async def fetch_jsearch(profile: Dict) -> List[Dict]:
     return results
 
 
+# ── Remoteok ──────────────────────────────────────────────────────────────────
+
+async def fetch_remoteok(profile: Dict) -> List[Dict]:
+    """
+    Remoteok public API — excellent startup + remote coverage, no auth needed.
+    https://remoteok.com/api?tags=python,react
+
+    Remoteok tags are single lowercase words. We map profile skills to valid tags.
+    Runs 2 queries: one skill-based, one role-based.
+    """
+    role_keywords, skill_keywords = _build_keyword_sets(profile)
+    skills = profile.get("skills", [])
+    role = (profile.get("role") or "").strip()
+
+    results = []
+    seen_keys = set()
+    seen_job_ids: set = set()
+
+    # Build skill tags: only single-word skills map cleanly to Remoteok tags
+    skill_tags = []
+    for s in skills[:6]:
+        s_lower = s.lower().strip()
+        # Multi-word skills like "machine learning" won't match Remoteok tags well
+        if " " not in s_lower:
+            skill_tags.append(s_lower)
+
+    # Build role tag: "backend engineer" → "backend"
+    role_tag = ""
+    role_lower = role.lower()
+    for keyword in ["backend", "frontend", "fullstack", "devops", "mobile", "ios",
+                    "android", "python", "react", "golang", "rust", "java", "scala"]:
+        if keyword in role_lower:
+            role_tag = keyword
+            break
+    if not role_tag and role_keywords:
+        role_tag = role_keywords[0]
+
+    # Queries to try
+    queries_to_try = []
+    if skill_tags:
+        queries_to_try.append(",".join(skill_tags[:3]))
+    if role_tag and role_tag not in ",".join(skill_tags[:3]):
+        queries_to_try.append(role_tag)
+
+    async with httpx.AsyncClient(
+        timeout=30,
+        headers={"User-Agent": "JobCRM/1.0 (personal job tracker)"},
+    ) as client:
+        for tag_query in queries_to_try[:2]:
+            try:
+                resp = await client.get(
+                    "https://remoteok.com/api",
+                    params={"tags": tag_query},
+                )
+                if resp.status_code != 200:
+                    continue
+
+                data = resp.json()
+                for job in data:
+                    if not isinstance(job, dict) or "position" not in job:
+                        continue  # skip legal notice and non-job items
+
+                    job_id = str(job.get("id", ""))
+                    if job_id in seen_job_ids:
+                        continue
+                    seen_job_ids.add(job_id)
+
+                    title = job.get("position", "")
+                    company = job.get("company", "")
+                    description = job.get("description", "")
+
+                    tags = job.get("tags") or []
+                    if isinstance(tags, str):
+                        tags = [t.strip() for t in tags.split(",") if t.strip()]
+
+                    if not _is_relevant_job(title, description, tags, role_keywords, skill_keywords):
+                        continue
+
+                    key = _dedup_key(company, title)
+                    if key in seen_keys:
+                        continue
+                    seen_keys.add(key)
+
+                    # Salary
+                    salary = ""
+                    sal_min = job.get("salary_min")
+                    sal_max = job.get("salary_max")
+                    if sal_min and sal_max:
+                        try:
+                            salary = f"${int(sal_min):,} - ${int(sal_max):,}"
+                        except (ValueError, TypeError):
+                            pass
+                    elif sal_min:
+                        try:
+                            salary = f"${int(sal_min):,}+"
+                        except (ValueError, TypeError):
+                            pass
+
+                    source_url = job.get("url") or job.get("apply_url") or ""
+                    if not source_url and job_id:
+                        source_url = f"https://remoteok.com/l/{job_id}"
+
+                    if not source_url:
+                        continue
+
+                    results.append({
+                        "title": title,
+                        "company_name": company,
+                        "company_website": job.get("company_logo", ""),
+                        "description": description,
+                        "location": "Remote",
+                        "salary_range": salary,
+                        "job_type": "full-time",
+                        "source": "remoteok",
+                        "source_url": source_url,
+                        "tags": tags,
+                        "dedup_key": key,
+                    })
+
+            except Exception as e:
+                print(f"Remoteok error (tags={tag_query}): {e}")
+
+    return results
+
+
+# ── Aggregator ────────────────────────────────────────────────────────────────
+
 async def fetch_all_jobs(profile: Dict, queries: List[Dict]) -> List[Dict]:
-    remotive_jobs, arbeitnow_jobs, jsearch_jobs = await asyncio.gather(
+    remotive_jobs, arbeitnow_jobs, jsearch_jobs, remoteok_jobs = await asyncio.gather(
         fetch_remotive(queries, profile),
         fetch_arbeitnow(queries, profile),
         fetch_jsearch(profile),
+        fetch_remoteok(profile),
         return_exceptions=True,
     )
 
     all_jobs = []
     seen_keys = set()
 
-    for source_jobs in [remotive_jobs, arbeitnow_jobs, jsearch_jobs]:
+    for source_jobs in [remotive_jobs, arbeitnow_jobs, jsearch_jobs, remoteok_jobs]:
         if isinstance(source_jobs, Exception):
             print(f"Source error: {source_jobs}")
             continue

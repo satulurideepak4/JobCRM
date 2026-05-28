@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react'
-import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
+import { useTheme } from './contexts/ThemeContext'
+import { cn } from './lib/utils'
 import Sidebar from './components/Sidebar'
 import Dashboard from './pages/Dashboard'
 import Applications from './pages/Applications'
@@ -10,20 +11,21 @@ import Profile from './pages/Profile'
 import Interview from './pages/Interview'
 import InterviewRoom from './pages/InterviewRoom'
 
-function AppLayout({ isDark, toggleTheme }) {
+function AppLayout() {
+  const { isDark } = useTheme()
   const location = useLocation()
   const isInterviewRoom = /^\/interview\/\d+/.test(location.pathname)
 
   return (
-    <div style={{ display: 'flex', minHeight: '100vh' }}>
-      <Sidebar isDark={isDark} toggleTheme={toggleTheme} />
-      <main style={{
-        flex: 1,
-        padding: isInterviewRoom ? '0' : '24px',
-        overflowY: 'auto',
-        maxHeight: '100vh',
-        background: isInterviewRoom ? '#0f1117' : 'var(--bg)',
-      }}>
+    <div className={cn(
+      'flex min-h-screen transition-colors duration-200',
+      isDark ? 'bg-dark-bg text-slate-100' : 'bg-light-bg text-slate-900'
+    )}>
+      <Sidebar />
+      <main className={cn(
+        'flex-1 overflow-auto',
+        isInterviewRoom ? 'p-0 bg-[#0f1117]' : 'p-6'
+      )}>
         <Routes>
           <Route path="/" element={<Dashboard />} />
           <Route path="/applications" element={<Applications />} />
@@ -41,16 +43,5 @@ function AppLayout({ isDark, toggleTheme }) {
 }
 
 export default function App() {
-  const [isDark, setIsDark] = useState(() => localStorage.getItem('theme') === 'dark')
-
-  useEffect(() => {
-    document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light')
-    localStorage.setItem('theme', isDark ? 'dark' : 'light')
-  }, [isDark])
-
-  return (
-    <BrowserRouter>
-      <AppLayout isDark={isDark} toggleTheme={() => setIsDark(d => !d)} />
-    </BrowserRouter>
-  )
+  return <AppLayout />
 }

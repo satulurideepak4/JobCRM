@@ -112,6 +112,11 @@ async def trigger_job_search(db: Session = Depends(get_db)):
 async def search_status():
     from agents.job_search_agent import get_search_status
     status = get_search_status()
+    # Merge in local scoring state too (manual re-score)
+    status["scoring_running"] = status.get("scoring_running") or _scoring_running
+    status["scoring_progress"] = status.get("scoring_progress") or _scoring_progress
+    status["scoring_total"] = status.get("scoring_total") or _scoring_total
+    status["scoring_done"] = status.get("scoring_done") or _scoring_done
     return {"data": status, "error": None, "status": 200}
 
 
@@ -119,7 +124,9 @@ async def search_status():
 async def trigger_ai_scoring(db: Session = Depends(get_db)):
     global _scoring_running
 
-    if _scoring_running:
+    # Check if agent's auto-scoring is running too
+    from agents.job_search_agent import _scoring_running as agent_scoring
+    if _scoring_running or agent_scoring:
         return {"data": {"message": "Scoring already running"}, "error": None, "status": 200}
 
     from models import Profile
@@ -127,8 +134,6 @@ async def trigger_ai_scoring(db: Session = Depends(get_db)):
     if not profile_record:
         return {"data": None, "error": "Please set up your profile first", "status": 400}
 
-    # Get all new jobs that haven't been AI scored yet
-    # AI-unscored jobs have match_reasons that are local filter tags (title_match, skills:x, etc.)
     unscored = db.query(Job).filter(Job.status == JobStatus.new).all()
     local_tag_prefixes = ("title_match", "skills:", "secondary:", "remote", "has_salary", "tag_match")
     to_score = [
@@ -149,18 +154,20 @@ async def trigger_ai_scoring(db: Session = Depends(get_db)):
         "experience_years": profile_record.experience_years or 0,
         "preferences": profile_record.preferences or {},
     }
+    # Use full resume text for best scoring quality
+    resume_text = profile_record.resume_raw or profile_record.resume_text or None
 
-    asyncio.create_task(_run_ai_scoring(job_ids, profile))
+    asyncio.create_task(_run_ai_scoring(job_ids, profile, resume_text))
     return {"data": {"message": f"AI scoring started for {len(job_ids)} jobs", "count": len(job_ids)}, "error": None, "status": 200}
 
 
-async def _run_ai_scoring(job_ids: list, profile: dict):
+async def _run_ai_scoring(job_ids: list, profile: dict, resume_text: str = None):
     global _scoring_running, _scoring_progress, _scoring_total, _scoring_done
 
     _scoring_running = True
     _scoring_total = len(job_ids)
     _scoring_done = 0
-    _scoring_progress = f"scoring 0 of {_scoring_total} jobs"
+    _scoring_progress = f"scoring 0/{_scoring_total} jobs"
 
     db = SessionLocal()
     try:
@@ -168,7 +175,7 @@ async def _run_ai_scoring(job_ids: list, profile: dict):
         batch_size = 20
         for i in range(0, len(job_ids), batch_size):
             batch = job_ids[i:i + batch_size]
-            scores = await score_jobs_batch_llm(batch, profile)
+            scores = await score_jobs_batch_llm(batch, profile, resume_text=resume_text)
 
             for job_id, score_data in scores.items():
                 job = db.query(Job).filter(Job.id == job_id).first()

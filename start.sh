@@ -33,13 +33,17 @@ else
   echo "Python dependencies up to date."
 fi
 
+# Kill anything already on our ports so restarts don't fail with EADDRINUSE
+lsof -ti:4444 | xargs kill -9 2>/dev/null || true
+lsof -ti:4445 | xargs kill -9 2>/dev/null || true
+
 cd backend
 uvicorn main:app --reload --port 4445 &
 BACKEND_PID=$!
 cd ..
 
 cd frontend
-npm install -q
+npm install -q --legacy-peer-deps
 npm run dev &
 FRONTEND_PID=$!
 cd ..
