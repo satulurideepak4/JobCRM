@@ -23,12 +23,6 @@ Everything runs on `localhost`. Nothing leaves your machine except the API calls
 
 ---
 
-## Demo
-
-> 📽️ **[Screen recording](docs/screenshots/draft-email-demo.mov)** — watch the draft email flow in action.
-
----
-
 ## Quick start
 
 ```bash
