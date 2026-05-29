@@ -3,7 +3,11 @@ import { useState, useRef, useCallback, useEffect } from 'react'
 const isBrowserSupported = () =>
   'webkitSpeechRecognition' in window || 'SpeechRecognition' in window
 
-export function useSpeechRecognition({ onFinalTranscript, silenceSeconds = 3 }) {
+export function useSpeechRecognition({
+  onFinalTranscript,
+  silenceSeconds = 3,
+  autoSubmitOnSilence = true,
+}) {
   const [isListening, setIsListening] = useState(false)
   const [transcript, setTranscript] = useState('')
   const [interimTranscript, setInterimTranscript] = useState('')
@@ -29,6 +33,7 @@ export function useSpeechRecognition({ onFinalTranscript, silenceSeconds = 3 }) 
   }, [])
 
   const resetSilenceTimer = useCallback((currentFinal) => {
+    if (!autoSubmitOnSilence) return
     clearSilenceTimer()
     if (!currentFinal?.trim()) return
 
@@ -45,7 +50,7 @@ export function useSpeechRecognition({ onFinalTranscript, silenceSeconds = 3 }) 
         onFinalRef.current(currentFinal.trim())
       }
     }, silenceSeconds * 1000)
-  }, [silenceSeconds, clearSilenceTimer])
+  }, [autoSubmitOnSilence, silenceSeconds, clearSilenceTimer])
 
   const startListening = useCallback(() => {
     if (!isBrowserSupported()) {
@@ -102,7 +107,7 @@ export function useSpeechRecognition({ onFinalTranscript, silenceSeconds = 3 }) 
       // KEY FIX: reset silence timer on ANY speech activity — final OR interim.
       // Without this, the timer fires mid-sentence when Chrome emits interim-only results.
       // Always pass finalRef.current so only confirmed text is submitted when timer fires.
-      if (finalChunk || interim) {
+      if (autoSubmitOnSilence && (finalChunk || interim)) {
         resetSilenceTimer(finalRef.current)
       }
     }
@@ -189,7 +194,7 @@ export function useSpeechRecognition({ onFinalTranscript, silenceSeconds = 3 }) 
     } catch (err) {
       setError('Failed to start microphone. Is another app using the mic?')
     }
-  }, [resetSilenceTimer])
+  }, [autoSubmitOnSilence, resetSilenceTimer])
 
   const stopListening = useCallback(() => {
     shouldRestartRef.current = false

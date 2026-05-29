@@ -184,6 +184,7 @@ export default function InterviewRoom() {
   } = useSpeechRecognition({
     onFinalTranscript: handleFinalTranscript,
     silenceSeconds: 3,
+    autoSubmitOnSilence: false,
   })
 
   // Keep ref current so speak() callbacks always use latest startListening
@@ -225,6 +226,8 @@ export default function InterviewRoom() {
 
   // Handle mic errors surfaced by the hook.
   // Only show the blocked card for genuine mic permission denials.
+  // If browser permissions already say "granted", a not-allowed is often a
+  // user-gesture/autostart quirk (not a real deny) — keep mic UI available.
   // Hardware-missing and speech-service errors switch to text mode instead.
   useEffect(() => {
     if (!micError) return
@@ -234,7 +237,31 @@ export default function InterviewRoom() {
       setMicBlocked(false)
       setUseTextMode(true)
     }
-    if (micError === 'mic-not-allowed') setMicBlocked(true)
+    if (micError === 'mic-not-allowed') {
+      let cancelled = false
+      const resolvePermissionState = async () => {
+        try {
+          if (!navigator.permissions) {
+            if (!cancelled) setMicBlocked(true)
+            return
+          }
+          const status = await navigator.permissions.query({ name: 'microphone' })
+          if (cancelled) return
+          if (status.state === 'granted') {
+            // Permission is already granted; don't show the blocked card.
+            // Leave the orb visible so user can tap to start from a gesture.
+            setMicBlocked(false)
+            setUseTextMode(false)
+          } else {
+            setMicBlocked(true)
+          }
+        } catch {
+          if (!cancelled) setMicBlocked(true)
+        }
+      }
+      resolvePermissionState()
+      return () => { cancelled = true }
+    }
     if (micError === 'mic-service-not-allowed') { setMicBlocked(false); setUseTextMode(true) }
   }, [micError])
 
@@ -370,11 +397,13 @@ export default function InterviewRoom() {
   //   3. Works correctly in incognito and other restricted contexts
   const handleMicTap = useCallback(() => {
     if (isListening) {
-      stopListening()
+      // Treat a second tap as "I'm done speaking" and submit immediately.
+      const submitted = submitNow()
+      if (!submitted) stopListening()
     } else {
       handleMicRetry()
     }
-  }, [isListening, stopListening, handleMicRetry])
+  }, [isListening, stopListening, submitNow, handleMicRetry])
 
   useEffect(() => {
     const load = async () => {

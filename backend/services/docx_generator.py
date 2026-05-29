@@ -222,19 +222,12 @@ def _apply_to_template(data: Dict) -> bytes:
         if not bullet_paras:
             continue
 
-        # Replace existing bullet paragraphs with new bullets
+        # Replace existing bullet paragraphs with new bullets.
+        # Preserve layout exactly: do not add/remove bullet rows.
         for i, para in enumerate(bullet_paras):
             if i < len(new_bullets):
                 _replace_para_text(para, new_bullets[i])
-            else:
-                # More original bullets than LLM bullets — blank the extras
-                _replace_para_text(para, "")
-
-        # If LLM gave more bullets than original, clone the last one
-        if len(new_bullets) > len(bullet_paras):
-            ref = bullet_paras[-1]
-            for extra in new_bullets[len(bullet_paras):]:
-                _clone_para_after(ref, extra)
+            # If LLM returned fewer bullets, keep remaining original bullets as-is.
 
     buf = io.BytesIO()
     doc.save(buf)

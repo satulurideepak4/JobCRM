@@ -151,17 +151,37 @@ Return ONLY valid JSON. No text outside the JSON. Exact structure:
 """
 
 
-def _build_prompt(jd: str, extra_instructions: str = "", generate_cover_letter: bool = False) -> str:
+def _build_prompt(
+    jd: str,
+    original_resume_text: str = "",
+    extra_instructions: str = "",
+    generate_cover_letter: bool = False,
+) -> str:
     extra = (
         f"\nADDITIONAL INSTRUCTIONS FROM CANDIDATE:\n{extra_instructions.strip()}\n"
         if extra_instructions.strip() else ""
     )
     schema = _OUTPUT_SCHEMA_WITH_COVER if generate_cover_letter else _OUTPUT_SCHEMA_NO_COVER
     cover_note = "" if generate_cover_letter else "\nDo NOT generate a cover letter. Set cover_letter to empty string.\n"
+    resume_source = (
+        f"\nORIGINAL RESUME (SOURCE OF TRUTH):\n{original_resume_text.strip()[:8000]}\n"
+        if original_resume_text and original_resume_text.strip()
+        else ""
+    )
+    tailoring_scope = """
+TAILORING SCOPE (STRICT):
+- Tailor from the ORIGINAL RESUME first, then align wording to the JD.
+- Do not invent jobs, projects, dates, education, certifications, or tools not present in the original resume/profile.
+- Preserve the resume structure used by the original resume template.
+- Only rewrite relevant text content (summary + existing bullets) to match the JD.
+- Do not expand layout by adding extra bullet rows/sections.
+"""
     return (
         f"You are a precise resume tailoring assistant.\n\n"
         f"{_PROFILE}\n"
+        f"{resume_source}\n"
         f"{_TAILORING_LOGIC}\n"
+        f"{tailoring_scope}\n"
         f"{_HARD_RULES}\n"
         f"{cover_note}"
         f"{extra}\n"
@@ -187,7 +207,12 @@ def _extract_json(text: str) -> dict:
     return json.loads(text[start:end])
 
 
-async def tailor_with_llm(jd: str, extra_instructions: str = "", generate_cover_letter: bool = False) -> dict:
+async def tailor_with_llm(
+    jd: str,
+    original_resume_text: str = "",
+    extra_instructions: str = "",
+    generate_cover_letter: bool = False,
+) -> dict:
     """Tailor resume using OpenAI GPT-4o API."""
     from openai import AsyncOpenAI
 
@@ -196,7 +221,7 @@ async def tailor_with_llm(jd: str, extra_instructions: str = "", generate_cover_
         raise ValueError("OPENAI_API_KEY not configured in .env")
 
     client   = AsyncOpenAI(api_key=api_key)
-    prompt   = _build_prompt(jd, extra_instructions, generate_cover_letter)
+    prompt   = _build_prompt(jd, original_resume_text, extra_instructions, generate_cover_letter)
 
     response = await client.chat.completions.create(
         model="gpt-4o",
@@ -207,9 +232,14 @@ async def tailor_with_llm(jd: str, extra_instructions: str = "", generate_cover_
     return json.loads(response.choices[0].message.content)
 
 
-async def tailor_with_agent(jd: str, extra_instructions: str = "", generate_cover_letter: bool = False) -> dict:
+async def tailor_with_agent(
+    jd: str,
+    original_resume_text: str = "",
+    extra_instructions: str = "",
+    generate_cover_letter: bool = False,
+) -> dict:
     """Tailor resume using Claude Code CLI subprocess (Claude Pro subscription)."""
-    prompt = _build_prompt(jd, extra_instructions, generate_cover_letter)
+    prompt = _build_prompt(jd, original_resume_text, extra_instructions, generate_cover_letter)
 
     loop = asyncio.get_event_loop()
     try:

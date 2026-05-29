@@ -2,6 +2,12 @@ from typing import List, Dict, Optional
 import llm_service
 
 MAX_QUESTIONS = 10
+MAX_JD_CHARS = 2200
+MAX_TURNS_FOR_NEXT_Q = 14
+MAX_MSG_CHARS_FOR_NEXT_Q = 550
+MAX_QA_PAIRS_FOR_DEBRIEF = 12
+MAX_Q_CHARS_FOR_DEBRIEF = 350
+MAX_A_CHARS_FOR_DEBRIEF = 700
 
 
 def build_system_prompt(mode: str, jd_text: str, concept: str, profile: dict) -> str:
@@ -15,7 +21,7 @@ def build_system_prompt(mode: str, jd_text: str, concept: str, profile: dict) ->
 
     context_parts = []
     if jd_text:
-        context_parts.append(f"Job Description:\n{jd_text[:3000]}")
+        context_parts.append(f"Job Description:\n{jd_text[:MAX_JD_CHARS]}")
     if concept:
         context_parts.append(f"Topic/Concept to test: {concept}")
     context = "\n\n".join(context_parts)
@@ -48,9 +54,12 @@ Interview rules:
 async def get_next_response(conversation: List[Dict], system_prompt: str) -> str:
     """Send conversation history to LLM and get next interviewer response."""
     messages_text = ""
-    for msg in conversation[-20:]:  # keep last 20 turns for context
+    for msg in conversation[-MAX_TURNS_FOR_NEXT_Q:]:
         role_label = "Interviewer" if msg["role"] == "assistant" else "Candidate"
-        messages_text += f"{role_label}: {msg['content']}\n\n"
+        content = (msg.get("content") or "").strip()
+        if len(content) > MAX_MSG_CHARS_FOR_NEXT_Q:
+            content = content[:MAX_MSG_CHARS_FOR_NEXT_Q] + "..."
+        messages_text += f"{role_label}: {content}\n\n"
 
     prompt = f"""{system_prompt}
 
@@ -75,7 +84,15 @@ async def generate_debrief(conversation: List[Dict], profile: dict, jd_text: str
     msgs = conversation
     for i, msg in enumerate(msgs):
         if msg["role"] == "assistant" and i + 1 < len(msgs) and msgs[i + 1]["role"] == "user":
-            qa_pairs.append(f"Q: {msg['content']}\nA: {msgs[i + 1]['content']}")
+            q = (msg.get("content") or "").strip()
+            a = (msgs[i + 1].get("content") or "").strip()
+            if len(q) > MAX_Q_CHARS_FOR_DEBRIEF:
+                q = q[:MAX_Q_CHARS_FOR_DEBRIEF] + "..."
+            if len(a) > MAX_A_CHARS_FOR_DEBRIEF:
+                a = a[:MAX_A_CHARS_FOR_DEBRIEF] + "..."
+            qa_pairs.append(f"Q: {q}\nA: {a}")
+
+    qa_pairs = qa_pairs[-MAX_QA_PAIRS_FOR_DEBRIEF:]
 
     qa_text = "\n\n".join(qa_pairs)
 

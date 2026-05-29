@@ -61,17 +61,26 @@ async def tailor_custom(req: CustomTailorRequest, db: Session = Depends(get_db))
         f"Company: {req.company_name}",
         f"\nJob Description:\n{req.job_description.strip()[:5000]}",
     ]
-    if profile and profile.resume_text:
-        jd_parts.append(f"\nCandidate's current resume:\n{profile.resume_text[:2000]}")
+    resume_text = profile.resume_text if profile and profile.resume_text else ""
     jd = "\n".join(jd_parts)
 
     try:
         from services.resume_tailor import tailor_with_llm, tailor_with_agent
 
         if req.method == "agent":
-            result = await tailor_with_agent(jd, req.extra_instructions or "", req.generate_cover_letter)
+            result = await tailor_with_agent(
+                jd,
+                resume_text,
+                req.extra_instructions or "",
+                req.generate_cover_letter,
+            )
         else:
-            result = await tailor_with_llm(jd, req.extra_instructions or "", req.generate_cover_letter)
+            result = await tailor_with_llm(
+                jd,
+                resume_text,
+                req.extra_instructions or "",
+                req.generate_cover_letter,
+            )
 
         cache_key = str(uuid.uuid4())[:8]
         _cache[f"custom:{cache_key}:{req.method}"] = {
@@ -156,17 +165,26 @@ async def tailor_resume(
         jd_parts.append(f"Location: {job.location}")
     if job.description:
         jd_parts.append(f"\nJob Description:\n{job.description[:4000]}")
-    if profile and profile.resume_text:
-        jd_parts.append(f"\nCandidate's current resume:\n{profile.resume_text[:2000]}")
+    resume_text = profile.resume_text if profile and profile.resume_text else ""
     jd = "\n".join(jd_parts)
 
     try:
         from services.resume_tailor import tailor_with_llm, tailor_with_agent
 
         if req.method == "agent":
-            result = await tailor_with_agent(jd, req.extra_instructions or "", req.generate_cover_letter)
+            result = await tailor_with_agent(
+                jd,
+                resume_text,
+                req.extra_instructions or "",
+                req.generate_cover_letter,
+            )
         else:
-            result = await tailor_with_llm(jd, req.extra_instructions or "", req.generate_cover_letter)
+            result = await tailor_with_llm(
+                jd,
+                resume_text,
+                req.extra_instructions or "",
+                req.generate_cover_letter,
+            )
 
         _cache[f"{job_id}:{req.method}"] = {
             "result":  result,
