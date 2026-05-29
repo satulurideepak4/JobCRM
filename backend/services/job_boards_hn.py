@@ -16,7 +16,7 @@ import re
 from typing import List, Dict, Optional
 
 import httpx
-from services.date_utils import is_location_ok
+from services.date_utils import is_location_ok, extract_skill_keywords
 
 HN_BASE = "https://hacker-news.firebaseio.com/v0"
 
@@ -316,15 +316,13 @@ async def fetch_hn_hiring(profile: Dict) -> List[Dict]:
     parses and filters by profile keywords + location.
     """
     role = (profile.get("role") or "").lower().strip()
-    skills = [s.lower().strip() for s in (profile.get("skills") or [])]
-
     stop_words = {"and", "or", "the", "for", "with", "from", "senior", "junior",
                   "lead", "staff", "principal", "associate"}
     role_keywords = [w for w in role.split() if len(w) > 2 and w not in stop_words]
     if not role_keywords and role:
         role_keywords = [role]
 
-    skill_keywords = skills[:15]
+    skill_keywords = extract_skill_keywords(profile.get("skills") or [])
 
     if not role_keywords and not skill_keywords:
         print("HN Hiring: no profile keywords, skipping")

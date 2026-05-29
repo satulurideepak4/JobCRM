@@ -67,8 +67,6 @@ def local_filter(jobs: List[Dict], profile: Dict) -> List[Dict]:
     preventing pure title-only or single-skill-only false positives.
     """
     role = profile.get("role", "").lower()
-    all_skill_tokens = extract_skill_keywords(profile.get("skills") or [])
-    # Keep ordering: primary = first 5 raw skills tokenized, secondary = next 10
     raw_skills = profile.get("skills") or []
     primary_skills = extract_skill_keywords(raw_skills[:5])
     secondary_skills = extract_skill_keywords(raw_skills[5:15])
@@ -80,7 +78,7 @@ def local_filter(jobs: List[Dict], profile: Dict) -> List[Dict]:
     if not role_keywords and role:
         role_keywords = [role]
 
-    profile_combined = f"{role} {' '.join(skills)}"
+    profile_combined = f"{role} {' '.join(s.lower() for s in raw_skills)}"
 
     results = []
     for job in jobs:

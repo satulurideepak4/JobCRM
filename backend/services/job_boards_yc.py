@@ -17,7 +17,7 @@ from typing import Dict, List, Optional
 
 import httpx
 
-from services.date_utils import is_within_days, is_location_ok
+from services.date_utils import is_within_days, is_location_ok, extract_skill_keywords
 
 HN_BASE = "https://hacker-news.firebaseio.com/v0"
 HEADERS = {"User-Agent": "Mozilla/5.0 JobCRM/1.0 (personal job tracker)"}
@@ -180,10 +180,9 @@ async def fetch_yc_jobs(profile: Dict) -> List[Dict]:
     Filtered to last 20 days, relevant to the user's profile.
     """
     role = (profile.get("role") or "").lower()
-    skills = [s.lower().strip() for s in (profile.get("skills") or [])]
     stop = {"and", "or", "the", "for", "with", "senior", "junior", "lead", "staff"}
     role_kw = [w for w in role.split() if len(w) > 2 and w not in stop] or [role]
-    skill_kw = skills[:15]
+    skill_kw = extract_skill_keywords(profile.get("skills") or [])
 
     results = []
     seen_keys: set = set()
