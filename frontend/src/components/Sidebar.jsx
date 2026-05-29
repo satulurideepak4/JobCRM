@@ -3,13 +3,14 @@ import { motion } from 'framer-motion'
 import { useTheme } from '../contexts/ThemeContext'
 import { cn } from '../lib/utils'
 import {
-  LayoutDashboard, Briefcase, Search, Mail, Bell, Mic, User, Sun, Moon,
+  LayoutDashboard, Briefcase, Search, Mail, Bell, Mic, User, Sun, Moon, FileEdit,
 } from 'lucide-react'
 
 const NAV_ITEMS = [
   { to: '/',           icon: LayoutDashboard, label: 'Dashboard' },
   { to: '/applications', icon: Briefcase,     label: 'Applications' },
   { to: '/jobs',       icon: Search,          label: 'Job Search' },
+  { to: '/tailor',     icon: FileEdit,        label: 'Resume Tailor' },
   { to: '/emails',     icon: Mail,            label: 'Emails' },
   { to: '/followups',  icon: Bell,            label: 'Follow-ups' },
   { to: '/interview',  icon: Mic,             label: 'Interview' },

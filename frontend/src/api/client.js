@@ -2,7 +2,7 @@ import axios from 'axios'
 
 const api = axios.create({
   baseURL: 'http://localhost:4445',
-  timeout: 30000,
+  timeout: 180000, // 3 min — Claude Agent subprocess can take up to 120s
 })
 
 api.interceptors.response.use(

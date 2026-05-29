@@ -10,6 +10,7 @@ import FollowUps from './pages/FollowUps'
 import Profile from './pages/Profile'
 import Interview from './pages/Interview'
 import InterviewRoom from './pages/InterviewRoom'
+import ResumeTailor from './pages/ResumeTailor'
 
 function AppLayout() {
   const { isDark } = useTheme()
@@ -35,6 +36,7 @@ function AppLayout() {
           <Route path="/profile" element={<Profile />} />
           <Route path="/interview" element={<Interview />} />
           <Route path="/interview/:sessionId" element={<InterviewRoom />} />
+          <Route path="/tailor" element={<ResumeTailor />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>

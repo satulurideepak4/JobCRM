@@ -1,28 +1,28 @@
 import api from '../api/client'
 import { useQueryClient } from '@tanstack/react-query'
-import { MapPin, Building2, X, Trash2 } from 'lucide-react'
+import { MapPin, Building2, X, Trash2, Copy, Check, Sparkles } from 'lucide-react'
 import { useState } from 'react'
+import { toast } from 'sonner'
 import { useTheme } from '../contexts/ThemeContext'
 import { cn } from '../lib/utils'
+import TailorModal from './TailorModal'
 
 const SOURCE_CONFIG = {
-  remotive:   { color: '#3b82f6', label: 'Remotive',   border: '#3b82f6' },
-  arbeitnow:  { color: '#22c55e', label: 'Arbeitnow',  border: '#22c55e' },
-  greenhouse: { color: '#8b5cf6', label: 'Greenhouse', border: '#8b5cf6' },
-  lever:      { color: '#f59e0b', label: 'Lever',      border: '#f59e0b' },
-  ashby:      { color: '#06b6d4', label: 'Ashby',      border: '#06b6d4' },
-  jsearch:    { color: '#eab308', label: 'JSearch',    border: '#eab308' },
-  hn_hiring:  { color: '#f97316', label: 'HN Hiring',  border: '#f97316' },
-  yc_jobs:    { color: '#f97316', label: 'YC Jobs',    border: '#f97316' },
-  workable:   { color: '#14b8a6', label: 'Workable',   border: '#14b8a6' },
-  workday:    { color: '#6366f1', label: 'Workday',    border: '#6366f1' },
-}
-
-const LOCAL_PREFIXES = ['title_match', 'skills:', 'secondary:', 'remote', 'has_salary', 'tag_match']
-
-function isAiScored(job) {
-  if (!job.match_reasons || job.match_reasons.length === 0) return false
-  return !LOCAL_PREFIXES.some(p => job.match_reasons[0]?.startsWith(p))
+  remotive:        { color: '#3b82f6', label: 'Remotive',     border: '#3b82f6' },
+  arbeitnow:       { color: '#22c55e', label: 'Arbeitnow',    border: '#22c55e' },
+  greenhouse:      { color: '#8b5cf6', label: 'Greenhouse',   border: '#8b5cf6' },
+  lever:           { color: '#f59e0b', label: 'Lever',        border: '#f59e0b' },
+  ashby:           { color: '#06b6d4', label: 'Ashby',        border: '#06b6d4' },
+  jsearch:         { color: '#eab308', label: 'JSearch',      border: '#eab308' },
+  hn_hiring:       { color: '#f97316', label: 'HN Hiring',    border: '#f97316' },
+  yc_jobs:         { color: '#f97316', label: 'YC Jobs',      border: '#f97316' },
+  workable:        { color: '#14b8a6', label: 'Workable',     border: '#14b8a6' },
+  workday:         { color: '#6366f1', label: 'Workday',      border: '#6366f1' },
+  himalayas:       { color: '#10b981', label: 'Himalayas',    border: '#10b981' },
+  weworkremotely:  { color: '#3b82f6', label: 'WWR',          border: '#3b82f6' },
+  remoteok:        { color: '#22c55e', label: 'RemoteOK',     border: '#22c55e' },
+  themuse:         { color: '#ec4899', label: 'The Muse',     border: '#ec4899' },
+  workingnomads:   { color: '#0ea5e9', label: 'WorkNomads',   border: '#0ea5e9' },
 }
 
 // Tag colors: [lightBg, lightText, darkBg, darkText]
@@ -49,35 +49,90 @@ function getTagPalette(tag) {
   return TAG_PALETTES.default
 }
 
-function ScoreCircle({ score }) {
-  const bg = score >= 80 ? '#22c55e' : score >= 60 ? '#f59e0b' : '#94a3b8'
+// Score badge
+function ScoreBadge({ score, isDark }) {
+  if (!score || score === 0) return null
+
+  const isStrong = score >= 80
+  const isGood   = score >= 60 && score < 80
+
+  if (isStrong) {
+    return (
+      <div className="flex items-center gap-1.5 flex-shrink-0">
+        <div className="w-10 h-10 rounded-full flex items-center justify-center text-[14px] font-bold text-white bg-emerald-500 flex-shrink-0">
+          {Math.round(score / 10)}
+        </div>
+        <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-500 leading-tight">
+          Strong<br />Match
+        </span>
+      </div>
+    )
+  }
+  if (isGood) {
+    return (
+      <div className="flex items-center gap-1.5 flex-shrink-0">
+        <div className="w-10 h-10 rounded-full flex items-center justify-center text-[14px] font-bold text-white bg-amber-500 flex-shrink-0">
+          {Math.round(score / 10)}
+        </div>
+        <span className="text-[10px] font-bold uppercase tracking-wider text-amber-500 leading-tight">
+          Good<br />Match
+        </span>
+      </div>
+    )
+  }
   return (
-    <div
-      className="w-11 h-11 rounded-full flex items-center justify-center text-[15px] font-bold text-white flex-shrink-0"
-      style={{ background: bg }}
-    >
-      {score}
+    <div className="flex items-center gap-1.5 flex-shrink-0">
+      <div className={cn(
+        'w-10 h-10 rounded-full flex items-center justify-center text-[14px] font-bold flex-shrink-0',
+        isDark ? 'bg-slate-700 text-slate-400' : 'bg-slate-200 text-slate-500'
+      )}>
+        {Math.round(score / 10)}
+      </div>
+      <span className={cn('text-[10px] font-bold uppercase tracking-wider leading-tight', isDark ? 'text-slate-600' : 'text-slate-400')}>
+        Weak<br />Match
+      </span>
     </div>
   )
 }
 
-function KeywordCircle({ isDark }) {
+function KeywordBadge({ isDark }) {
   return (
     <div className={cn(
-      'w-11 h-11 rounded-full border flex flex-col items-center justify-center gap-0.5 flex-shrink-0',
+      'w-10 h-10 rounded-full border flex flex-col items-center justify-center gap-0.5 flex-shrink-0',
       isDark ? 'bg-dark-surface border-dark-border' : 'bg-slate-100 border-slate-200',
     )}>
-      <div className={cn('text-[8px] font-bold leading-none', isDark ? 'text-slate-600' : 'text-slate-500')}>KEY</div>
-      <div className={cn('text-[8px] leading-none',            isDark ? 'text-slate-600' : 'text-slate-500')}>WORD</div>
+      <div className={cn('text-[7px] font-bold leading-none', isDark ? 'text-slate-600' : 'text-slate-400')}>KEY</div>
+      <div className={cn('text-[7px] leading-none', isDark ? 'text-slate-600' : 'text-slate-400')}>WORD</div>
     </div>
   )
+}
+
+function daysAgo(dateStr) {
+  if (!dateStr) return null
+  const d = new Date(dateStr)
+  if (isNaN(d.getTime())) return null
+  const diff = Math.floor((Date.now() - d.getTime()) / 86400000)
+  if (diff === 0) return 'today'
+  if (diff === 1) return '1d ago'
+  return `${diff}d ago`
+}
+
+const LOCAL_PREFIXES = ['title_match', 'skills:', 'secondary:', 'remote', 'has_salary', 'tag_match', 'kafka', 'java_go', 'api_platform', 'distributed', 'data_infra', 'cloud', 'postgres_redis', 'fintech', 'remote_signal', 'spring_boot']
+
+function isAiScored(job) {
+  if (!job.match_reasons || job.match_reasons.length === 0) return false
+  const first = job.match_reasons[0] || ''
+  return !LOCAL_PREFIXES.some(p => first.startsWith(p))
 }
 
 export default function JobCard({ job, onDraftEmail }) {
   const { isDark } = useTheme()
-  const qc = useQueryClient()
-  const [loading, setLoading] = useState(false)
+  const qc         = useQueryClient()
+  const [loading, setLoading]           = useState(false)
   const [descExpanded, setDescExpanded] = useState(false)
+  const [copied, setCopied]             = useState(false)
+  const [showTailor, setShowTailor]     = useState(false)
+
   const aiScored = isAiScored(job)
   const src = SOURCE_CONFIG[job.source] || { color: '#64748b', label: job.source || 'Unknown', border: '#64748b' }
 
@@ -101,21 +156,30 @@ export default function JobCard({ job, onDraftEmail }) {
     }
   }
 
-  const baseTags = job.tags || []
+  function copyColdEmailTarget() {
+    const text = `${job.company_name} — ${job.title}\n${job.source_url}`
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true)
+      toast.success('Cold email target copied!')
+      setTimeout(() => setCopied(false), 2000)
+    })
+  }
+
+  const baseTags  = job.tags || []
   const locationLower = (job.location || '').toLowerCase()
   const allTags = locationLower.includes('remote') && !baseTags.some(t => t.toLowerCase().includes('remote'))
     ? [...baseTags, job.location]
     : baseTags
 
   const descText = (() => {
-    const raw = job.description || ''
-    // Strip HTML tags
+    const raw    = job.description || ''
     const noTags = raw.replace(/<[^>]*>/g, ' ')
-    // Decode HTML entities
-    const txt = document.createElement('textarea')
+    const txt    = document.createElement('textarea')
     txt.innerHTML = noTags
     return txt.value.replace(/\s+/g, ' ').trim()
   })()
+
+  const fetchedAgo = daysAgo(job.fetched_at)
 
   return (
     <div
@@ -127,15 +191,20 @@ export default function JobCard({ job, onDraftEmail }) {
       )}
       style={{ borderLeftColor: src.border }}
     >
-      {/* Header: source + title + score */}
+      {/* Header: source badge + title + score */}
       <div className="flex items-start justify-between gap-3">
         <div className="flex-1 min-w-0">
-          {/* Source badge */}
+          {/* Source + age */}
           <div className="flex items-center gap-1.5 mb-1.5">
             <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: src.color }} />
             <span className="text-[10px] font-bold uppercase tracking-wider" style={{ color: src.color }}>
               {src.label}
             </span>
+            {fetchedAgo && (
+              <span className={cn('text-[10px]', isDark ? 'text-slate-600' : 'text-slate-400')}>
+                · {fetchedAgo}
+              </span>
+            )}
           </div>
           {/* Title */}
           <div className={cn('text-[15px] font-bold leading-snug mb-1', isDark ? 'text-slate-100' : 'text-slate-900')}>
@@ -147,7 +216,10 @@ export default function JobCard({ job, onDraftEmail }) {
             <span className={cn('text-[13px]', isDark ? 'text-slate-400' : 'text-slate-600')}>{job.company_name}</span>
           </div>
         </div>
-        {aiScored ? <ScoreCircle score={job.match_score} /> : <KeywordCircle isDark={isDark} />}
+        {aiScored
+          ? <ScoreBadge score={job.match_score} isDark={isDark} />
+          : <KeywordBadge isDark={isDark} />
+        }
       </div>
 
       {/* Tags */}
@@ -171,7 +243,7 @@ export default function JobCard({ job, onDraftEmail }) {
         </div>
       )}
 
-      {/* AI match reasons */}
+      {/* AI match reason */}
       {aiScored && job.match_reasons?.length > 0 && (
         <ul className="text-xs text-brand pl-4 leading-relaxed m-0 space-y-0.5">
           {job.match_reasons.slice(0, 2).map((r, i) => <li key={i}>{r}</li>)}
@@ -220,6 +292,20 @@ export default function JobCard({ job, onDraftEmail }) {
         </div>
 
         <div className="flex items-center gap-1.5 flex-shrink-0">
+          {/* Copy cold email target */}
+          <button
+            onClick={copyColdEmailTarget}
+            title="Copy cold email target (company + role + URL)"
+            className={cn(
+              'p-1.5 rounded-lg border transition-colors',
+              isDark
+                ? 'border-dark-border text-slate-600 hover:text-slate-300 hover:border-slate-500'
+                : 'border-gray-300 text-slate-400 hover:text-slate-600 hover:border-gray-400',
+            )}
+          >
+            {copied ? <Check size={12} className="text-emerald-400" /> : <Copy size={12} />}
+          </button>
+
           {job.status === 'new' && (
             <>
               <button
@@ -261,6 +347,14 @@ export default function JobCard({ job, onDraftEmail }) {
           >
             <Trash2 size={12} />
           </button>
+          <button
+            onClick={() => setShowTailor(true)}
+            title="Tailor resume + generate cover letter"
+            className="flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-700 text-white font-semibold transition-colors whitespace-nowrap"
+          >
+            <Sparkles size={11} />
+            Tailor
+          </button>
           <a
             href={job.source_url}
             target="_blank"
@@ -271,6 +365,14 @@ export default function JobCard({ job, onDraftEmail }) {
           </a>
         </div>
       </div>
+
+      {showTailor && (
+        <TailorModal
+          job={job}
+          onClose={() => setShowTailor(false)}
+          isDark={isDark}
+        />
+      )}
     </div>
   )
 }

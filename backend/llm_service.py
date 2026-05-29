@@ -7,6 +7,100 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# ── Dynamic job-scoring system prompt ────────────────────────────────────────
+
+# Languages we recognise for stack-mismatch rejection
+_BACKEND_LANGUAGES = {
+    "java", "go", "golang", "python", "rust", "scala", "kotlin",
+    "c++", "c#", "ruby", "php", "node", "node.js", "typescript",
+    "elixir", "haskell", "clojure", "erlang", "swift",
+}
+_REJECT_ONLY_STACKS = {
+    "node.js", "node", "ruby on rails", "rails", ".net", "php",
+}
+
+
+def build_scoring_system_prompt(profile: dict, resume_text: str = None) -> str:
+    """Build a candidate-specific LLM scoring prompt from live profile data."""
+    role            = (profile.get("role") or "Software Engineer").strip()
+    skills          = [s.strip() for s in (profile.get("skills") or []) if s.strip()]
+    exp_years       = int(profile.get("experience_years") or 0)
+    prefs           = profile.get("preferences") or {}
+
+    remote_only         = bool(prefs.get("remote_only", False))
+    preferred_locations = (prefs.get("preferred_locations") or "").strip()
+    preferred_salary    = (prefs.get("preferred_salary") or "").strip()
+    preferred_size      = (prefs.get("preferred_company_size") or "").strip()
+
+    # ── Candidate section ────────────────────────────────────────────────────
+    skills_str = ", ".join(skills) if skills else "Not specified"
+
+    if remote_only:
+        location_line = "Wants fully remote only (global companies)"
+    elif preferred_locations:
+        location_line = f"Preferred locations: {preferred_locations}"
+    else:
+        location_line = "Open to remote and hybrid"
+
+    extra_prefs = []
+    if preferred_salary:
+        extra_prefs.append(f"Salary expectation: {preferred_salary}")
+    if preferred_size:
+        extra_prefs.append(f"Preferred company size: {preferred_size}")
+    extra_prefs_str = ("\n- " + "\n- ".join(extra_prefs)) if extra_prefs else ""
+
+    # ── Resume excerpt ───────────────────────────────────────────────────────
+    resume_section = ""
+    if resume_text and resume_text.strip():
+        snippet = resume_text.strip()[:2000]
+        resume_section = f"\nRESUME EXCERPT (use this as the ground truth for skills and experience):\n{snippet}\n"
+
+    # ── Scoring rubric — derived from top skills ─────────────────────────────
+    top3 = skills[:3] if skills else []
+    top3_str = " + ".join(top3) if top3 else role
+
+    # Hard reject experience threshold: candidate's years + 2
+    reject_exp_threshold = exp_years + 2
+
+    # Detect candidate's primary languages to build stack-mismatch reject rule
+    candidate_langs = {s.lower() for s in skills} & _BACKEND_LANGUAGES
+    reject_stacks   = _REJECT_ONLY_STACKS - candidate_langs  # don't reject stacks the candidate actually has
+    reject_stack_str = ""
+    if reject_stacks:
+        listed = sorted(reject_stacks)[:4]   # cap at 4 examples for brevity
+        reject_stack_str = (
+            f"\n- Role requires ONLY {' / '.join(listed)} with no path to candidate's stack"
+        )
+
+    location_reject = "\n- On-site only or explicitly excludes remote workers" if remote_only else ""
+
+    return f"""You are a precise job-fit evaluator. Score each job listing for the specific candidate described below.
+
+CANDIDATE:
+- Role: {role}
+- Experience: {exp_years} years
+- Skills: {skills_str}
+- Location: {location_line}{extra_prefs_str}
+{resume_section}
+SCORING RULES:
+Return ONLY a JSON array — one object per job, same order as input. No text outside the JSON.
+Format per item: {{"id": <job_id>, "score": <1-10>, "reason": "<one sentence>", "red_flags": ["<flag>"], "apply_method": "direct|cold_email"}}
+
+score 9-10: Near-perfect match — {top3_str} + core domain + remote-friendly
+score 7-8:  Strong match — most of candidate's primary skills present, remote ok
+score 5-6:  Partial match — some skills overlap, stack or location uncertain
+score 3-4:  Weak match — wrong stack or domain but company/domain is interesting
+score 1-2:  Hard reject (see below)
+
+HARD REJECT (return score: 1) if ANY of:{location_reject}
+- Requires {reject_exp_threshold}+ years of experience{reject_stack_str}
+- IT services, staffing, outsourcing, or body-shop company
+- No backend, platform, or infrastructure work involved
+- Job posted more than 10 days ago
+
+apply_method: return "cold_email" if the company appears small/early-stage with no
+formal application link, "direct" otherwise."""
+
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "gemini").lower()
 VALID_PROVIDERS = {"gemini", "openai", "anthropic", "grok"}
 

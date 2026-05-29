@@ -12,7 +12,7 @@ import asyncio
 import hashlib
 import httpx
 from typing import List, Dict, Set
-from services.date_utils import is_within_days, is_location_ok
+from services.date_utils import is_within_days, is_location_ok, extract_skill_keywords
 
 ALLOWED_LOCATIONS = {
     "remote", "worldwide", "anywhere", "global", "us", "usa", "united states",
@@ -342,10 +342,16 @@ UNIVERSAL_SLUGS = {
         # ── Dev Tools / Platform ─────────────────────────────────────────────────
         "linear", "retool", "posthog", "sourcegraph", "codeium", "mintlify",
         "readme", "jfrog", "sonatype", "gitpod",
-        "speakeasy", "zuplo",
+        "speakeasy", "zuplo", "treblle", "apitally",
         "eppo", "growthbook",
+        # ── API tooling / infra ───────────────────────────────────────────────────
+        "retool", "clerk", "stytch", "temporal", "confluent", "redpanda",
+        "materialize", "airbyte", "fivetran", "dagster", "metaplane",
+        "hightouch", "census", "rudderstack", "mux", "courier",
+        "workos", "novu", "resend", "svix", "hookdeck",
         # ── Auth / Identity ──────────────────────────────────────────────────────
         "clerk", "workos", "stytch", "beyond-identity", "opal", "doppler",
+        "propelauth",
         # ── Sales / CRM ──────────────────────────────────────────────────────────
         "gong", "outreach", "apollo", "attio", "clay", "clari", "salesloft",
         # ── HR / Payroll ──────────────────────────────────────────────────────────
@@ -411,6 +417,15 @@ UNIVERSAL_SLUGS = {
         "leapsome", "lattice",
         # ── Databases ─────────────────────────────────────────────────────────
         "cockroachdb", "yugabyte", "pinecone", "weaviate", "convex",
+        # ── Observability / Incident ──────────────────────────────────────────
+        "pagerduty", "incident-io", "firehydrant", "rootly", "blameless",
+        "grafana-labs", "honeycomb", "lightstep", "observe", "axiom",
+        "tinybird", "clickhouse",
+        # ── Databases (new) ───────────────────────────────────────────────────
+        "turso", "neon", "planetscale", "supabase", "xata", "fauna",
+        "convex", "ditto", "ably", "liveblocks", "partykit",
+        # ── API tooling ───────────────────────────────────────────────────────
+        "postman",
     ],
     "ashby": [
         # ── Core YC/growth startups ───────────────────────────────────────────
@@ -454,6 +469,13 @@ UNIVERSAL_SLUGS = {
         "lattice", "leapsome",
         # ── EU startups on Ashby ──────────────────────────────────────────────
         "qonto", "pennylane", "celonis",
+        # ── Streaming / CDC / data infra ──────────────────────────────────────
+        "inngest", "trigger-dev", "windmill", "prefect", "dagster",
+        "estuary", "meroxa", "decodable", "arcion", "striim",
+        "streamkap", "artie", "sequin", "peerdb",
+        # ── Analytics / BI ────────────────────────────────────────────────────
+        "synmetrix", "cube", "evidence", "lightdash",
+        "metabase", "preset", "mode", "sigma", "omni",
     ],
 }
 
@@ -774,6 +796,8 @@ async def _fetch_greenhouse_company(
             params={"content": "true"},
             timeout=10,
         )
+        if resp.status_code == 404:
+            return []  # slug doesn't exist — skip silently
         if resp.status_code != 200:
             return []
         data = resp.json()
@@ -958,8 +982,8 @@ async def fetch_ats_jobs(profile: dict) -> List[Dict]:
     Uses role-aware slug selection to avoid hitting irrelevant companies.
     """
     role = (profile.get("role") or "").lower()
-    skills = [s.lower().strip() for s in (profile.get("skills") or []) if s]
-    keywords = skills + ([role] if role else [])
+    skill_tokens = extract_skill_keywords(profile.get("skills") or [])
+    keywords = skill_tokens + ([role] if role else [])
     keywords = [k for k in keywords if k]
 
     stop_words = {"and", "or", "the", "for", "with", "from", "senior", "junior",

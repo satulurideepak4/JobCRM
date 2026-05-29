@@ -88,57 +88,116 @@ def _is_relevant_job(title: str, description: str, tags: List[str],
 
 # ── Remotive ──────────────────────────────────────────────────────────────────
 
-async def fetch_remotive(queries: List[Dict], profile: Dict) -> List[Dict]:
-    role_keywords, skill_keywords = _build_keyword_sets(profile)
-    results = []
+# Targeted queries run against category=software-dev for precise coverage
+REMOTIVE_QUERIES = [
+    "java backend",
+    "golang backend",
+    "kafka",
+    "api platform",
+    "backend infrastructure",
+    "platform engineer",
+    "fintech backend",
+    "data pipeline",
+]
+
+
+async def _fetch_remotive_query(
+    client: httpx.AsyncClient,
+    query: str,
+    profile: Dict,
+    role_keywords: List[str],
+    skill_keywords: List[str],
+) -> List[Dict]:
+    """Fetch one Remotive query with category=software-dev."""
+    results   = []
     seen_keys = set()
+    try:
+        resp = await client.get(
+            "https://remotive.com/api/remote-jobs",
+            params={"category": "software-dev", "search": query, "limit": 50},
+            timeout=20,
+        )
+        if resp.status_code != 200:
+            return []
+        data = resp.json()
+        for job in data.get("jobs", []):
+            if not is_within_days(job.get("publication_date")):
+                continue
+
+            location = job.get("candidate_required_location", "") or ""
+            # Allow empty location (worldwide) or locations that don't exclude India
+            if location:
+                loc_l = location.lower()
+                # Reject only explicitly country-restricted listings that exclude remote India
+                hard_blocks = {"india only", "uk only", "europe only", "us only", "usa only",
+                               "australia only", "germany only"}
+                if any(b in loc_l for b in hard_blocks):
+                    continue
+                # Keep: empty, "Worldwide", "Remote", "Global", or any timezone-based
+                allowed_signals = {"remote", "worldwide", "global", "anywhere",
+                                   "us", "usa", "canada", "north america", "utc", "est", "pst"}
+                if not any(sig in loc_l for sig in allowed_signals):
+                    # Unknown location — still allow; LLM will filter
+                    pass
+
+            title       = job.get("title", "")
+            description = job.get("description", "")
+            tags        = job.get("tags", [])
+
+            if not _is_relevant_job(title, description, tags, role_keywords, skill_keywords):
+                continue
+
+            key = _dedup_key(job.get("company_name", ""), title)
+            if key in seen_keys:
+                continue
+            seen_keys.add(key)
+            results.append({
+                "title":           title,
+                "company_name":    job.get("company_name", ""),
+                "company_website": job.get("company_logo", ""),
+                "description":     description,
+                "location":        location or "Remote",
+                "salary_range":    job.get("salary", ""),
+                "job_type":        job.get("job_type", ""),
+                "source":          "remotive",
+                "source_url":      job.get("url", ""),
+                "tags":            tags,
+                "dedup_key":       key,
+            })
+    except Exception as e:
+        print(f"Remotive error for query '{query}': {e}")
+    return results
+
+
+async def fetch_remotive(queries: List[Dict], profile: Dict) -> List[Dict]:
+    """
+    Fetch from Remotive with targeted software-dev category queries.
+    Runs REMOTIVE_QUERIES in parallel (ignores the generic 'queries' param
+    in favour of role-specific queries).
+    """
+    role_keywords, skill_keywords = _build_keyword_sets(profile)
+    seen_keys  = set()
+    all_jobs   = []
 
     async with httpx.AsyncClient(timeout=30) as client:
-        for query_obj in queries:
-            query = query_obj.get("query", "")
-            try:
-                resp = await client.get(
-                    "https://remotive.com/api/remote-jobs",
-                    params={"search": query, "limit": 100},
-                )
-                if resp.status_code != 200:
-                    continue
-                data = resp.json()
-                for job in data.get("jobs", []):
-                    if not is_within_days(job.get("publication_date")):
-                        continue
-                    location = job.get("candidate_required_location", "Remote")
-                    if not is_location_ok(location, profile):
-                        continue
+        page_results = await asyncio.gather(
+            *[_fetch_remotive_query(client, q, profile, role_keywords, skill_keywords)
+              for q in REMOTIVE_QUERIES],
+            return_exceptions=True,
+        )
 
-                    title = job.get("title", "")
-                    description = job.get("description", "")
-                    tags = job.get("tags", [])
+    for page in page_results:
+        if isinstance(page, Exception):
+            print(f"Remotive page error: {page}")
+            continue
+        for job in page:
+            key = job.get("dedup_key", "")
+            if key and key not in seen_keys:
+                seen_keys.add(key)
+                all_jobs.append(job)
 
-                    if not _is_relevant_job(title, description, tags, role_keywords, skill_keywords):
-                        continue
-
-                    key = _dedup_key(job.get("company_name", ""), title)
-                    if key in seen_keys:
-                        continue
-                    seen_keys.add(key)
-                    results.append({
-                        "title": title,
-                        "company_name": job.get("company_name", ""),
-                        "company_website": job.get("company_logo", ""),
-                        "description": description,
-                        "location": location,
-                        "salary_range": job.get("salary", ""),
-                        "job_type": job.get("job_type", ""),
-                        "source": "remotive",
-                        "source_url": job.get("url", ""),
-                        "tags": tags,
-                        "dedup_key": key,
-                    })
-            except Exception as e:
-                print(f"Remotive error for query '{query}': {e}")
-
-    return results
+    print(f"Remotive: {len(all_jobs)} relevant jobs")
+    return all_jobs
 
 
 # ── Arbeitnow ─────────────────────────────────────────────────────────────────

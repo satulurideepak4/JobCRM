@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Search, Loader, Trash2, Briefcase, Copy, Check, X, RefreshCw } from 'lucide-react'
+import { Search, Loader, Trash2, Briefcase, Copy, Check, X, RefreshCw, Eye, EyeOff } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { toast } from 'sonner'
 import api from '../api/client'
@@ -116,18 +116,45 @@ const SOURCES = [
   { key: 'arbeitnow',      label: 'Arbeitnow',     color: '#84cc16' },
 ]
 
+// Keyword filter chips — checked client-side against title + description
+const KEYWORD_CHIPS = [
+  { key: 'java_go',     label: 'Java/Go',       terms: ['java', 'golang', 'go backend', 'jvm', 'kotlin'] },
+  { key: 'kafka',       label: 'Kafka',         terms: ['kafka', 'event streaming', 'event-driven', 'rabbitmq', 'confluent', 'kinesis'] },
+  { key: 'api',         label: 'API Platform',  terms: ['api gateway', 'api platform', 'api management', 'openapi', 'grpc', 'api tooling'] },
+  { key: 'fintech',     label: 'Fintech',       terms: ['fintech', 'payments', 'banking', 'financial', 'transactions'] },
+  { key: 'remote_only', label: 'Remote Only',   terms: ['remote'] },
+]
+
 const STATUS_TABS = ['new', 'saved', 'dismissed']
+
+function daysAgo(dateStr) {
+  if (!dateStr) return null
+  const d = new Date(dateStr)
+  if (isNaN(d)) return null
+  const diff = Math.floor((Date.now() - d.getTime()) / 86400000)
+  if (diff === 0) return 'today'
+  if (diff === 1) return '1 day ago'
+  return `${diff} days ago`
+}
 
 export default function JobSearch() {
   const { isDark } = useTheme()
   const qc = useQueryClient()
-  const [activeTab, setActiveTab] = useState('new')
-  const [minScore, setMinScore] = useState(70)
-  const [remoteOnly, setRemoteOnly] = useState(false)
-  const [sourceFilter, setSourceFilter] = useState('all')
-  const [draftJob, setDraftJob] = useState(null)
+  const [activeTab, setActiveTab]           = useState('new')
+  const [minScore, setMinScore]             = useState(70)
+  const [sourceFilter, setSourceFilter]     = useState('all')
+  const [draftJob, setDraftJob]             = useState(null)
+  const [showWeak, setShowWeak]             = useState(false)
+  const [activeChips, setActiveChips]       = useState(new Set())
 
-  // Poll search status — drives progress banner and job list refresh
+  const toggleChip = key =>
+    setActiveChips(prev => {
+      const next = new Set(prev)
+      next.has(key) ? next.delete(key) : next.add(key)
+      return next
+    })
+
+  // Poll search status
   const { data: searchStatus } = useQuery({
     queryKey: ['searchStatus'],
     queryFn: async () => (await api.get('/api/search/status')).data.data,
@@ -137,25 +164,24 @@ export default function JobSearch() {
     },
   })
 
+  // Fetch jobs — always fetch score >= 0 so we can do client-side badge filtering
   const { data: jobsData, isLoading } = useQuery({
     queryKey: ['jobs', activeTab, minScore],
     queryFn: async () => {
-      const res = await api.get('/api/jobs', { params: { status: activeTab, min_score: minScore, limit: 100 } })
+      const res = await api.get('/api/jobs', { params: { status: activeTab, min_score: minScore, limit: 200 } })
       return res.data.data
     },
     refetchInterval: searchStatus?.running ? 3000 : false,
   })
 
-  // Search — fetches + semantic ranks automatically
   const searchMutation = useMutation({
     mutationFn: () => api.post('/api/search/trigger'),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['searchStatus'] })
-      toast.success('Job search started — results ranked by relevance automatically')
+      toast.success('Job search started — results ranked automatically')
     },
   })
 
-  // Re-score — re-runs local embeddings on existing jobs (use after profile update)
   const rescoreMutation = useMutation({
     mutationFn: () => api.post('/api/jobs/score'),
     onSuccess: () => {
@@ -164,7 +190,6 @@ export default function JobSearch() {
     },
   })
 
-  // Clear all — wipe DB and start fresh
   const clearMutation = useMutation({
     mutationFn: () => api.delete('/api/jobs/all'),
     onSuccess: (res) => {
@@ -174,14 +199,52 @@ export default function JobSearch() {
   })
 
   const allJobs = jobsData?.jobs || []
-  let jobs = allJobs
-  if (sourceFilter !== 'all') jobs = jobs.filter(j => j.source === sourceFilter)
-  if (remoteOnly) jobs = jobs.filter(j => (j.location || '').toLowerCase().includes('remote'))
+
+  // Client-side filtering + sorting
+  const jobs = useMemo(() => {
+    let list = allJobs
+
+    // Source filter
+    if (sourceFilter !== 'all') list = list.filter(j => j.source === sourceFilter)
+
+    // Keyword chip filters (AND across chips)
+    if (activeChips.size > 0) {
+      list = list.filter(job => {
+        const haystack = `${job.title} ${job.description || ''} ${(job.tags || []).join(' ')}`.toLowerCase()
+        return [...activeChips].every(chipKey => {
+          const chip = KEYWORD_CHIPS.find(c => c.key === chipKey)
+          return chip && chip.terms.some(t => haystack.includes(t))
+        })
+      })
+    }
+
+    // "Remote Only" chip (also checks location)
+    if (activeChips.has('remote_only')) {
+      list = list.filter(j => (j.location || '').toLowerCase().includes('remote'))
+    }
+
+    // Score buckets
+    const strong = list.filter(j => j.match_score >= 80)
+    const good   = list.filter(j => j.match_score >= 60 && j.match_score < 80)
+    const weak   = list.filter(j => j.match_score < 60)
+
+    // Sort each bucket by score desc
+    const sortByScore = arr => [...arr].sort((a, b) => (b.match_score || 0) - (a.match_score || 0))
+
+    const visible = [...sortByScore(strong), ...sortByScore(good)]
+    if (showWeak) visible.push(...sortByScore(weak))
+
+    return visible
+  }, [allJobs, sourceFilter, activeChips, showWeak])
 
   const sourceCounts = SOURCES.reduce((acc, s) => {
     acc[s.key] = s.key === 'all' ? allJobs.length : allJobs.filter(j => j.source === s.key).length
     return acc
   }, {})
+
+  const strongCount = allJobs.filter(j => j.match_score >= 80).length
+  const goodCount   = allJobs.filter(j => j.match_score >= 60 && j.match_score < 80).length
+  const weakCount   = allJobs.filter(j => j.match_score < 60).length
 
   const isSearching = searchMutation.isPending || searchStatus?.running
   const btnBase = 'flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-medium border transition-all duration-150'
@@ -200,12 +263,11 @@ export default function JobSearch() {
         <div>
           <h1 className={cn('text-2xl font-bold', isDark ? 'text-slate-100' : 'text-slate-900')}>Job Search</h1>
           <p className={cn('text-xs mt-0.5', isDark ? 'text-slate-500' : 'text-slate-400')}>
-            Ranked by semantic match to your profile · local AI · no API cost
+            Auto-scored by LLM after each search · sorted by match quality
           </p>
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
-          {/* Clear all — destructive */}
           <button
             onClick={() => {
               if (window.confirm('Delete ALL jobs from the database and start fresh?')) {
@@ -215,26 +277,22 @@ export default function JobSearch() {
             disabled={clearMutation.isPending || isSearching}
             className={cn(btnBase, 'text-red-400 border-red-500/30 hover:bg-red-500/10 disabled:opacity-40',
               isDark ? 'bg-dark-surface' : 'bg-white')}
-            title="Wipe all jobs — useful before a clean search run"
           >
             <Trash2 size={13} />
             {clearMutation.isPending ? 'Clearing…' : 'Clear all'}
           </button>
 
-          {/* Re-score — use after profile/resume update */}
           <button
             onClick={() => rescoreMutation.mutate()}
             disabled={rescoreMutation.isPending || isSearching || allJobs.length === 0}
             className={cn(btnBase, isDark
               ? 'bg-dark-surface border-dark-border text-slate-400 hover:text-slate-200 disabled:opacity-40'
               : 'bg-white border-gray-200 text-slate-500 hover:text-slate-700 disabled:opacity-40')}
-            title="Re-rank existing jobs against your current profile (run after updating profile/resume)"
           >
             <RefreshCw size={13} className={rescoreMutation.isPending ? 'animate-spin' : ''} />
             Re-score
           </button>
 
-          {/* Search — main action */}
           <button
             onClick={() => searchMutation.mutate()}
             disabled={isSearching}
@@ -246,6 +304,34 @@ export default function JobSearch() {
           </button>
         </div>
       </div>
+
+      {/* Score summary bar */}
+      {allJobs.length > 0 && (
+        <div className="flex items-center gap-3 flex-wrap">
+          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-500/15 border border-emerald-500/30">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 flex-shrink-0" />
+            <span className="text-xs font-semibold text-emerald-400">{strongCount} Strong Match</span>
+          </div>
+          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-amber-500/15 border border-amber-500/30">
+            <span className="w-2 h-2 rounded-full bg-amber-400 flex-shrink-0" />
+            <span className="text-xs font-semibold text-amber-400">{goodCount} Good Match</span>
+          </div>
+          {weakCount > 0 && (
+            <button
+              onClick={() => setShowWeak(v => !v)}
+              className={cn(
+                'flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-semibold transition-colors',
+                showWeak
+                  ? isDark ? 'bg-slate-700 border-slate-600 text-slate-300' : 'bg-slate-200 border-slate-300 text-slate-600'
+                  : isDark ? 'border-slate-700 text-slate-600 hover:text-slate-400' : 'border-gray-300 text-slate-400 hover:text-slate-600'
+              )}
+            >
+              {showWeak ? <EyeOff size={11} /> : <Eye size={11} />}
+              {showWeak ? 'Hide' : 'Show'} weak ({weakCount})
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Search progress banner */}
       <AnimatePresence>
@@ -269,10 +355,10 @@ export default function JobSearch() {
           Source
         </span>
         {SOURCES.map(s => {
-          const count = sourceCounts[s.key] || 0
+          const count  = sourceCounts[s.key] || 0
           if (s.key !== 'all' && count === 0) return null
           const active = sourceFilter === s.key
-          const isAll = s.key === 'all'
+          const isAll  = s.key === 'all'
           return (
             <button
               key={s.key}
@@ -289,9 +375,32 @@ export default function JobSearch() {
             >
               {!isAll && <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: s.color }} />}
               {s.label} · {count}
-              {s.key === 'hn_hiring' && count > 0 && (
-                <span className="text-[9px] bg-orange-500 text-white rounded px-1 py-0.5 font-bold ml-0.5">NEW</span>
+            </button>
+          )
+        })}
+      </div>
+
+      {/* Keyword filter chips */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className={cn('text-[10px] font-bold uppercase tracking-widest', isDark ? 'text-slate-600' : 'text-slate-500')}>
+          Filter
+        </span>
+        {KEYWORD_CHIPS.map(chip => {
+          const active = activeChips.has(chip.key)
+          return (
+            <button
+              key={chip.key}
+              onClick={() => toggleChip(chip.key)}
+              className={cn(
+                'px-3 py-1 rounded-full text-xs font-semibold border-[1.5px] transition-all duration-150',
+                active
+                  ? 'border-brand bg-brand/15 text-brand'
+                  : isDark
+                    ? 'border-slate-700 text-slate-500 hover:border-slate-600 hover:text-slate-400'
+                    : 'border-gray-200 text-slate-400 hover:border-gray-300 hover:text-slate-600',
               )}
+            >
+              {chip.label}
             </button>
           )
         })}
@@ -317,24 +426,13 @@ export default function JobSearch() {
           ))}
         </div>
 
-        {/* Remote only */}
-        <label className={cn('flex items-center gap-1.5 cursor-pointer text-sm select-none font-medium', remoteOnly ? 'text-emerald-400' : isDark ? 'text-slate-500' : 'text-slate-400')}>
-          <input
-            type="checkbox"
-            checked={remoteOnly}
-            onChange={e => setRemoteOnly(e.target.checked)}
-            className="w-3.5 h-3.5 rounded accent-emerald-500 cursor-pointer"
-          />
-          Remote only
-        </label>
-
         {/* Min score slider */}
         <div className="flex items-center gap-2 ml-auto">
           <span className={cn('text-xs', isDark ? 'text-slate-500' : 'text-slate-600')}>
-            Min match: <span className={cn('font-bold', isDark ? 'text-slate-200' : 'text-slate-800')}>{minScore}</span>
+            Min score: <span className={cn('font-bold', isDark ? 'text-slate-200' : 'text-slate-800')}>{minScore}</span>
           </span>
           <input
-            type="range" min={0} max={100} step={1} value={minScore}
+            type="range" min={0} max={100} step={5} value={minScore}
             onChange={e => setMinScore(Number(e.target.value))}
             className="w-28 accent-brand"
           />
@@ -363,17 +461,17 @@ export default function JobSearch() {
             <p className={cn('text-sm font-medium mb-1', isDark ? 'text-slate-400' : 'text-slate-600')}>
               {activeTab !== 'new'
                 ? `No ${activeTab} jobs yet.`
-                : minScore > 62
-                  ? `No jobs above ${minScore}% match. Lower the Min match slider.`
+                : allJobs.length > 0
+                  ? 'No jobs match the active filters.'
                   : 'No jobs yet.'}
             </p>
             <p className={cn('text-xs', isDark ? 'text-slate-600' : 'text-slate-400')}>
-              {activeTab === 'new' && minScore <= 62
-                ? 'Click "Search Jobs" — only relevant matches are shown, ranked by semantic similarity to your profile.'
+              {activeTab === 'new' && allJobs.length === 0
+                ? 'Click "Search Jobs" — results are auto-scored by LLM and sorted by match quality.'
                 : ''}
             </p>
           </div>
-          {activeTab === 'new' && minScore <= 62 && (
+          {activeTab === 'new' && allJobs.length === 0 && (
             <button
               onClick={() => searchMutation.mutate()}
               disabled={isSearching}

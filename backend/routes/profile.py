@@ -127,6 +127,34 @@ Resume text:
     }
 
 
+@router.post("/profile/resume-template")
+async def upload_resume_template(file: UploadFile = File(...)):
+    """Store user's original resume .docx as the base template for tailoring."""
+    if not file.filename.endswith(".docx"):
+        raise HTTPException(status_code=400, detail="Only .docx files are accepted")
+
+    content = await file.read()
+    os.makedirs("uploads", exist_ok=True)
+    with open("uploads/resume_base.docx", "wb") as f:
+        f.write(content)
+
+    return {"data": {"message": "Template saved"}, "error": None, "status": 200}
+
+
+@router.get("/profile/resume-template/status")
+async def resume_template_status():
+    exists = os.path.exists("uploads/resume_base.docx")
+    return {"data": {"has_template": exists}, "error": None, "status": 200}
+
+
+@router.delete("/profile/resume-template")
+async def delete_resume_template():
+    path = "uploads/resume_base.docx"
+    if os.path.exists(path):
+        os.remove(path)
+    return {"data": {"message": "Template removed"}, "error": None, "status": 200}
+
+
 @router.get("/profile/resume/download")
 async def download_resume(db: Session = Depends(get_db)):
     """Serve the saved resume PDF for viewing/downloading."""

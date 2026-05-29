@@ -51,6 +51,17 @@ async def lifespan(app: FastAPI):
     from scheduler import start_scheduler, stop_scheduler
     start_scheduler()
 
+    # Optional: run one full search+score 30s after startup
+    if os.getenv("RUN_ON_STARTUP", "false").lower() == "true":
+        async def _delayed_startup_search():
+            await asyncio.sleep(30)
+            from agents.job_search_agent import run_job_search
+            import logging
+            logging.getLogger(__name__).info("RUN_ON_STARTUP: triggering initial job search")
+            await run_job_search()
+
+        asyncio.create_task(_delayed_startup_search())
+
     yield
 
     stop_scheduler()
@@ -105,6 +116,7 @@ from routes.followups import router as followups_router
 from routes.dashboard import router as dashboard_router
 from routes.gmail import router as gmail_router
 from routes.interview import router as interview_router
+from routes.tailor import router as tailor_router
 
 app.include_router(profile_router, prefix="/api")
 app.include_router(applications_router, prefix="/api")
@@ -114,6 +126,7 @@ app.include_router(followups_router, prefix="/api")
 app.include_router(dashboard_router, prefix="/api")
 app.include_router(gmail_router)
 app.include_router(interview_router)
+app.include_router(tailor_router)
 
 
 @app.get("/health")
