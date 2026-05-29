@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
-import { Upload, Check, X, User, Wifi, Cpu } from 'lucide-react'
+import { Upload, Check, X, User, Wifi, Cpu, FileText, Download, Eye } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { toast } from 'sonner'
 import api from '../api/client'
@@ -105,7 +105,7 @@ export default function Profile() {
     role: '',
     skills: [],
     experience_years: 0,
-    preferences: { remote_only: false, preferred_salary: '', preferred_company_size: '' },
+    preferences: { remote_only: false, preferred_salary: '', preferred_company_size: '', preferred_locations: '' },
   })
   const [skillInput, setSkillInput] = useState('')
   const [saved, setSaved] = useState(false)
@@ -119,7 +119,7 @@ export default function Profile() {
         role: data.role || '',
         skills: data.skills || [],
         experience_years: data.experience_years || 0,
-        preferences: data.preferences || { remote_only: false, preferred_salary: '', preferred_company_size: '' },
+        preferences: data.preferences || { remote_only: false, preferred_salary: '', preferred_company_size: '', preferred_locations: '' },
       })
     }
   }, [data])
@@ -318,6 +318,17 @@ export default function Profile() {
 
             <div className="flex flex-col gap-3">
               <div>
+                <FieldLabel>Preferred Locations</FieldLabel>
+                <TextInput
+                  value={form.preferences?.preferred_locations || ''}
+                  onChange={e => setForm(f => ({ ...f, preferences: { ...f.preferences, preferred_locations: e.target.value } }))}
+                  placeholder="e.g. US, Canada, Remote, Europe"
+                />
+                <p className={cn('text-[11px] mt-1', isDark ? 'text-slate-600' : 'text-slate-400')}>
+                  Comma-separated. Used to filter job locations. Leave blank to use remote-only setting.
+                </p>
+              </div>
+              <div>
                 <FieldLabel>Preferred Salary</FieldLabel>
                 <TextInput
                   value={form.preferences?.preferred_salary || ''}
@@ -390,15 +401,52 @@ export default function Profile() {
               : 'bg-red-500/10 border-red-500/25 text-red-400',
           )}>
             {uploadResult.success
-              ? `Resume parsed! Extracted ${uploadResult.parsed?.skills?.length || 0} skills.${data?.has_resume ? ' Profile updated.' : ''}`
+              ? `Resume parsed! Extracted ${uploadResult.parsed?.skills?.length || 0} skills. Profile updated.`
               : uploadResult.error
             }
           </div>
         )}
 
-        {data?.has_resume && !uploadResult && (
-          <div className={cn('mt-2 flex items-center gap-1.5 text-xs', isDark ? 'text-slate-600' : 'text-slate-600')}>
-            <Check size={12} className="text-emerald-400" /> Resume on file
+        {/* Saved resume — show filename + view/download buttons */}
+        {data?.has_resume && (
+          <div className={cn(
+            'mt-3 flex items-center justify-between gap-3 px-4 py-3 rounded-xl border',
+            isDark ? 'bg-slate-800/50 border-slate-700' : 'bg-slate-50 border-gray-200',
+          )}>
+            <div className="flex items-center gap-2 min-w-0">
+              <FileText size={15} className="text-brand flex-shrink-0" />
+              <span className={cn('text-sm font-medium truncate', isDark ? 'text-slate-300' : 'text-slate-700')}>
+                {data.resume_filename || 'resume.pdf'}
+              </span>
+              <Check size={12} className="text-emerald-400 flex-shrink-0" />
+            </div>
+            <div className="flex items-center gap-1.5 flex-shrink-0">
+              <a
+                href={`${import.meta.env.VITE_API_URL || 'http://localhost:4445'}/api/profile/resume/download`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={cn(
+                  'flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors',
+                  isDark
+                    ? 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                    : 'bg-white border border-gray-300 text-slate-600 hover:bg-gray-50',
+                )}
+              >
+                <Eye size={12} /> View
+              </a>
+              <a
+                href={`${import.meta.env.VITE_API_URL || 'http://localhost:4445'}/api/profile/resume/download`}
+                download={data.resume_filename || 'resume.pdf'}
+                className={cn(
+                  'flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors',
+                  isDark
+                    ? 'bg-brand/20 text-brand hover:bg-brand/30'
+                    : 'bg-brand/10 text-brand hover:bg-brand/20',
+                )}
+              >
+                <Download size={12} /> Download
+              </a>
+            </div>
           </div>
         )}
       </Card>

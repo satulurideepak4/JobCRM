@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "gemini").lower()
-VALID_PROVIDERS = {"gemini", "openai", "anthropic"}
+VALID_PROVIDERS = {"gemini", "openai", "anthropic", "grok"}
 
 if LLM_PROVIDER not in VALID_PROVIDERS:
     raise RuntimeError(
@@ -37,6 +37,13 @@ elif LLM_PROVIDER == "anthropic":
     if not ANTHROPIC_API_KEY:
         raise RuntimeError("ANTHROPIC_API_KEY is required when LLM_PROVIDER=anthropic")
     _anthropic_client = anthropic_sdk.AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
+
+elif LLM_PROVIDER == "grok":
+    from openai import AsyncOpenAI
+    XAI_API_KEY = os.getenv("XAI_API_KEY")
+    if not XAI_API_KEY:
+        raise RuntimeError("XAI_API_KEY is required when LLM_PROVIDER=grok")
+    _grok_client = AsyncOpenAI(api_key=XAI_API_KEY, base_url="https://api.x.ai/v1")
 
 
 def _should_retry(exc: Exception) -> bool:
@@ -86,6 +93,8 @@ async def _call_provider(prompt: str, system: Optional[str]) -> str:
         return await _call_openai(prompt, system)
     elif LLM_PROVIDER == "anthropic":
         return await _call_anthropic(prompt, system)
+    elif LLM_PROVIDER == "grok":
+        return await _call_grok(prompt, system)
 
 
 async def _call_gemini(prompt: str, system: Optional[str]) -> str:
@@ -118,6 +127,19 @@ async def _call_anthropic(prompt: str, system: Optional[str]) -> str:
     return response.content[0].text
 
 
+async def _call_grok(prompt: str, system: Optional[str]) -> str:
+    messages = []
+    if system:
+        messages.append({"role": "system", "content": system})
+    messages.append({"role": "user", "content": prompt})
+    response = await _grok_client.chat.completions.create(
+        model="grok-2-latest",
+        messages=messages,
+        temperature=0.3,
+    )
+    return response.choices[0].message.content
+
+
 def get_langchain_llm():
     """Return the appropriate LangChain LLM instance for the configured provider."""
     if LLM_PROVIDER == "gemini":
@@ -139,5 +161,13 @@ def get_langchain_llm():
         return ChatAnthropic(
             model="claude-3-5-haiku-20241022",
             anthropic_api_key=os.getenv("ANTHROPIC_API_KEY"),
+            temperature=0.3,
+        )
+    elif LLM_PROVIDER == "grok":
+        from langchain_openai import ChatOpenAI
+        return ChatOpenAI(
+            model="grok-2-latest",
+            openai_api_key=os.getenv("XAI_API_KEY"),
+            openai_api_base="https://api.x.ai/v1",
             temperature=0.3,
         )

@@ -1,5 +1,45 @@
 from typing import List, Dict, Optional
 import llm_service
+from services.date_utils import extract_skill_keywords
+
+
+# ── Domain mismatch blocklist ─────────────────────────────────────────────────
+# If any of these words appear in a job TITLE but NOT in the user's profile,
+# the job is dropped early — before the embedding stage.
+# Prevents false positives like "Senior CAD Backend Engineer" scoring 82
+# for a Python/Java backend profile.
+_DOMAIN_TITLE_BLOCKLIST = {
+    "cad", "mechanical", "embedded", "firmware", "fpga", "verilog", "vhdl",
+    "asic", "rtl", "pcb", "electrical", "civil", "structural", "aerospace",
+    "automotive", "plc", "scada", "solidworks", "catia", "ansys", "autocad",
+    "robotics", "mechatronics", "cnc",
+    "blockchain", "solidity", "nft", "web3", "defi",
+    "sap", "cobol", "mainframe", "abap",
+    "clinical", "pharmaceutical", "biotech", "genomics", "bioinformatics",
+}
+
+# Words in a job title that signal a customer-facing / non-IC role.
+# These are only blocked if they don't appear in the user's own profile —
+# so a "solutions engineer" profile still gets "solutions architect" jobs.
+_CUSTOMER_FACING_TITLE_WORDS = {
+    "solutions", "presales", "pre-sales", "advocate",
+    "evangelist", "devrel", "success",
+}
+
+# Whole-phrase role blocklist — checked as substring in title.
+# Only blocks if phrase is absent from the user's own profile.
+_CUSTOMER_FACING_PHRASES = {
+    "professional services",
+    "technical services",
+    "technical support",
+    "customer support",
+    "sales engineer",
+    "field engineer",
+    "technical account",
+}
+
+# Management/non-IC roles — blocked unless profile explicitly mentions them
+_MANAGEMENT_TITLE_WORDS = {"manager", "director", "vp", "vice president", "head of"}
 
 
 # ── Stage 1: Local keyword filter ─────────────────────────────────────────────
@@ -27,9 +67,11 @@ def local_filter(jobs: List[Dict], profile: Dict) -> List[Dict]:
     preventing pure title-only or single-skill-only false positives.
     """
     role = profile.get("role", "").lower()
-    skills = [s.lower() for s in (profile.get("skills") or [])]
-    primary_skills = skills[:5]
-    secondary_skills = skills[5:15]
+    all_skill_tokens = extract_skill_keywords(profile.get("skills") or [])
+    # Keep ordering: primary = first 5 raw skills tokenized, secondary = next 10
+    raw_skills = profile.get("skills") or []
+    primary_skills = extract_skill_keywords(raw_skills[:5])
+    secondary_skills = extract_skill_keywords(raw_skills[5:15])
     remote_pref = profile.get("preferences", {}).get("remote_only", False)
 
     stop_words = {"and", "or", "the", "for", "with", "from", "senior", "junior",
@@ -38,6 +80,8 @@ def local_filter(jobs: List[Dict], profile: Dict) -> List[Dict]:
     if not role_keywords and role:
         role_keywords = [role]
 
+    profile_combined = f"{role} {' '.join(skills)}"
+
     results = []
     for job in jobs:
         title = (job.get("title") or "").lower()
@@ -45,6 +89,28 @@ def local_filter(jobs: List[Dict], profile: Dict) -> List[Dict]:
         location = (job.get("location") or "").lower()
         tags = [t.lower() for t in (job.get("tags") or [])]
         combined = f"{title} {desc} {' '.join(tags)}"
+
+        # ── Domain mismatch guard ─────────────────────────────────────────────
+        domain_hit = next(
+            (w for w in _DOMAIN_TITLE_BLOCKLIST if w in title and w not in profile_combined),
+            None,
+        )
+        if domain_hit:
+            continue
+
+        # ── Customer-facing / non-IC role guard ──────────────────────────────
+        # Single-word signals
+        title_cf_words = {w for w in _CUSTOMER_FACING_TITLE_WORDS if w in title}
+        if title_cf_words and not any(w in profile_combined for w in title_cf_words):
+            continue
+        # Phrase-level signals (e.g. "professional services", "technical support")
+        if any(p in title for p in _CUSTOMER_FACING_PHRASES):
+            if not any(p in profile_combined for p in _CUSTOMER_FACING_PHRASES):
+                continue
+        # Management roles — drop if user's profile doesn't mention management
+        if any(w in title for w in _MANAGEMENT_TITLE_WORDS):
+            if not any(w in profile_combined for w in _MANAGEMENT_TITLE_WORDS):
+                continue
 
         score = 0
         reasons = []
@@ -90,8 +156,8 @@ def local_filter(jobs: List[Dict], profile: Dict) -> List[Dict]:
             score += 1
             reasons.append("tag_match")
 
-        # Require at least 2 positive signals (min 5 points)
-        if score >= 5:
+        # Require strong signal (min 6 points = role match + primary skill, or multiple skill hits)
+        if score >= 6:
             job_copy = dict(job)
             job_copy["local_score"] = score
             job_copy["local_reasons"] = reasons

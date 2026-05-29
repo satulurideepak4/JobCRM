@@ -121,10 +121,14 @@ async def search_status():
 
 
 @router.post("/jobs/score")
-async def trigger_ai_scoring(db: Session = Depends(get_db)):
+async def trigger_embedding_rescore(db: Session = Depends(get_db)):
+    """
+    Re-score all 'new' jobs using local embeddings (no LLM API call).
+    Useful after updating your profile or resume — re-ranks existing jobs
+    against your updated context.
+    """
     global _scoring_running
 
-    # Check if agent's auto-scoring is running too
     from agents.job_search_agent import _scoring_running as agent_scoring
     if _scoring_running or agent_scoring:
         return {"data": {"message": "Scoring already running"}, "error": None, "status": 200}
@@ -134,64 +138,88 @@ async def trigger_ai_scoring(db: Session = Depends(get_db)):
     if not profile_record:
         return {"data": None, "error": "Please set up your profile first", "status": 400}
 
-    unscored = db.query(Job).filter(Job.status == JobStatus.new).all()
-    local_tag_prefixes = ("title_match", "skills:", "secondary:", "remote", "has_salary", "tag_match")
-    to_score = [
-        j for j in unscored
-        if not j.match_reasons or (
-            j.match_reasons and isinstance(j.match_reasons[0], str) and
-            any(j.match_reasons[0].startswith(p) for p in local_tag_prefixes)
-        )
-    ]
-
-    if not to_score:
+    # Score all jobs regardless of status, then trim below threshold
+    jobs_to_score = db.query(Job).all()
+    if not jobs_to_score:
         return {"data": {"message": "No jobs to score", "count": 0}, "error": None, "status": 200}
 
-    job_ids = [j.id for j in to_score]
     profile = {
         "role": profile_record.role,
         "skills": profile_record.skills or [],
         "experience_years": profile_record.experience_years or 0,
         "preferences": profile_record.preferences or {},
     }
-    # Use full resume text for best scoring quality
     resume_text = profile_record.resume_raw or profile_record.resume_text or None
 
-    asyncio.create_task(_run_ai_scoring(job_ids, profile, resume_text))
-    return {"data": {"message": f"AI scoring started for {len(job_ids)} jobs", "count": len(job_ids)}, "error": None, "status": 200}
+    asyncio.create_task(_run_embedding_rescore(jobs_to_score, profile, resume_text))
+    return {
+        "data": {"message": f"Re-scoring {len(jobs_to_score)} jobs — will trim anything below 70", "count": len(jobs_to_score)},
+        "error": None,
+        "status": 200,
+    }
 
 
-async def _run_ai_scoring(job_ids: list, profile: dict, resume_text: str = None):
+async def _run_embedding_rescore(jobs, profile: dict, resume_text: str = None):
+    """Re-score existing DB jobs using local embeddings — zero LLM calls."""
     global _scoring_running, _scoring_progress, _scoring_total, _scoring_done
 
     _scoring_running = True
-    _scoring_total = len(job_ids)
+    _scoring_total = len(jobs)
     _scoring_done = 0
-    _scoring_progress = f"scoring 0/{_scoring_total} jobs"
+    _scoring_progress = f"embedding {_scoring_total} jobs…"
 
     db = SessionLocal()
     try:
-        from services.scorer import score_jobs_batch_llm
-        batch_size = 20
-        for i in range(0, len(job_ids), batch_size):
-            batch = job_ids[i:i + batch_size]
-            scores = await score_jobs_batch_llm(batch, profile, resume_text=resume_text)
+        from services.embedder import embed_profile, embed_jobs_batch, score_jobs
 
-            for job_id, score_data in scores.items():
-                job = db.query(Job).filter(Job.id == job_id).first()
-                if job:
-                    job.match_score = score_data["score"]
-                    job.match_reasons = score_data["reasons"]
-                    if score_data.get("tags"):
-                        job.tags = score_data["tags"]
+        # Convert ORM objects to dicts for the embedder
+        job_dicts = [
+            {
+                "id": j.id,
+                "title": j.title,
+                "company_name": j.company_name,
+                "description": j.description or "",
+                "tags": j.tags or [],
+            }
+            for j in jobs
+        ]
 
-            db.commit()
-            _scoring_done += len(batch)
-            _scoring_progress = f"scoring {_scoring_done} of {_scoring_total} jobs"
+        # Run embedding in thread pool (CPU-bound, keeps event loop free)
+        import numpy as np
+        profile_vector = await asyncio.get_event_loop().run_in_executor(
+            None, lambda: embed_profile(profile, resume_text)
+        )
+        job_vectors = await asyncio.get_event_loop().run_in_executor(
+            None, lambda: embed_jobs_batch(job_dicts)
+        )
+        scores = score_jobs(profile_vector, job_vectors)
 
-        _scoring_progress = f"completed — {_scoring_total} jobs scored"
+        MIN_SCORE = 70
+
+        # Write scores back and collect IDs to delete
+        ids_to_delete = []
+        for job_orm, score in zip(jobs, scores):
+            j = db.query(Job).filter(Job.id == job_orm.id).first()
+            if j:
+                if round(score) < MIN_SCORE:
+                    ids_to_delete.append(j.id)
+                else:
+                    j.match_score = round(score)
+                    j.match_reasons = [f"semantic similarity: {score:.1f}/100"]
+            _scoring_done += 1
+
+        # Delete below-threshold jobs
+        if ids_to_delete:
+            db.query(Job).filter(Job.id.in_(ids_to_delete)).delete(synchronize_session=False)
+
+        db.commit()
+        trimmed = len(ids_to_delete)
+        kept = _scoring_total - trimmed
+        _scoring_progress = f"done — {kept} jobs kept, {trimmed} below 70 removed"
+        logger.info(f"Rescore complete: {kept} kept, {trimmed} trimmed")
+
     except Exception as e:
-        logger.error(f"AI scoring failed: {e}")
+        logger.error(f"Embedding rescore failed: {e}", exc_info=True)
         _scoring_progress = f"failed: {e}"
     finally:
         db.close()
@@ -251,6 +279,25 @@ async def clean_irrelevant_jobs(db: Session = Depends(get_db)):
         "error": None,
         "status": 200,
     }
+
+
+@router.delete("/jobs/all")
+async def delete_all_jobs(db: Session = Depends(get_db)):
+    """Wipe all jobs and start fresh. Must be defined before /jobs/{job_id}."""
+    count = db.query(Job).count()
+    db.query(Job).delete()
+    db.commit()
+    return {"data": {"deleted": count, "message": f"Deleted all {count} jobs. Ready for a fresh search."}, "error": None, "status": 200}
+
+
+@router.delete("/jobs/{job_id}")
+async def delete_job(job_id: int, db: Session = Depends(get_db)):
+    job = db.query(Job).filter(Job.id == job_id).first()
+    if not job:
+        return {"data": None, "error": "Not found", "status": 404}
+    db.delete(job)
+    db.commit()
+    return {"data": {"deleted": job_id}, "error": None, "status": 200}
 
 
 @router.get("/jobs/score/status")

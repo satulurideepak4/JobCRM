@@ -77,6 +77,8 @@ class Profile(Base):
     preferences = Column(JSON, default={})
     resume_text = Column(Text)
     resume_raw = Column(Text)
+    resume_filename = Column(String)        # original uploaded filename
+    resume_file_path = Column(String)       # path on disk: uploads/resume_<id>.pdf
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

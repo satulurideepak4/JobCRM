@@ -16,6 +16,7 @@ import re
 from typing import List, Dict, Optional
 
 import httpx
+from services.date_utils import is_location_ok
 
 HN_BASE = "https://hacker-news.firebaseio.com/v0"
 
@@ -354,7 +355,7 @@ async def fetch_hn_hiring(profile: Dict) -> List[Dict]:
                 if not job:
                     continue
 
-                if not _is_allowed_location(job["location"]):
+                if not is_location_ok(job["location"], profile):
                     continue
 
                 if not _is_relevant(job, role_keywords, skill_keywords):

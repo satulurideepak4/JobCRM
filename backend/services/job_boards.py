@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 from typing import List, Dict, Optional
 from dotenv import load_dotenv
+from services.date_utils import is_within_days, is_location_ok, extract_skill_keywords
 
 load_dotenv()
 
@@ -26,6 +27,13 @@ BLOCKED_LOCATIONS = {
     "netherlands", "sweden", "norway", "denmark", "finland", "poland",
     "australia", "new zealand", "india", "china", "japan", "singapore",
     "brazil", "mexico", "argentina", "latin america", "apac", "emea",
+    "sydney", "melbourne", "brisbane", "perth",
+    "hyderabad", "bangalore", "bengaluru", "mumbai", "delhi", "pune", "chennai",
+    "lisbon", "porto", "tel aviv", "israel",
+    "london", "berlin", "amsterdam", "paris", "stockholm", "dublin",
+    "kiev", "kyiv", "warsaw", "prague",
+    "hong kong", "taipei", "seoul", "tokyo", "bangkok", "jakarta",
+    "dubai", "uae", "saudi", "lagos", "nairobi",
 }
 
 _STOP_WORDS = {"and", "or", "the", "for", "with", "from", "senior", "junior",
@@ -42,7 +50,7 @@ def _is_allowed_location(location: str) -> bool:
         return True
     if "remote" in loc:
         return True
-    return True
+    return False  # default block unknown locations
 
 
 def _dedup_key(company_name: str, title: str) -> str:
@@ -52,11 +60,11 @@ def _dedup_key(company_name: str, title: str) -> str:
 
 def _build_keyword_sets(profile: Dict):
     role = (profile.get("role") or "").lower()
-    skills = [s.lower().strip() for s in (profile.get("skills") or []) if s]
     role_keywords = [w for w in role.split() if len(w) > 2 and w not in _STOP_WORDS]
     if not role_keywords and role:
         role_keywords = [role]
-    return role_keywords, skills
+    skill_keywords = extract_skill_keywords(profile.get("skills") or [])
+    return role_keywords, skill_keywords
 
 
 def _is_relevant_job(title: str, description: str, tags: List[str],
@@ -97,8 +105,10 @@ async def fetch_remotive(queries: List[Dict], profile: Dict) -> List[Dict]:
                     continue
                 data = resp.json()
                 for job in data.get("jobs", []):
+                    if not is_within_days(job.get("publication_date")):
+                        continue
                     location = job.get("candidate_required_location", "Remote")
-                    if not _is_allowed_location(location):
+                    if not is_location_ok(location, profile):
                         continue
 
                     title = job.get("title", "")
@@ -160,8 +170,10 @@ async def fetch_arbeitnow(queries: List[Dict], profile: Dict) -> List[Dict]:
                     break
 
                 for job in jobs:
+                    if not is_within_days(job.get("created_at")):
+                        continue
                     location = job.get("location", "Remote")
-                    if not _is_allowed_location(location):
+                    if not is_location_ok(location, profile):
                         continue
 
                     title = job.get("title", "")
@@ -236,7 +248,7 @@ async def fetch_jsearch(profile: Dict) -> List[Dict]:
 
                 for job in jobs:
                     location = job.get("job_city") or job.get("job_country") or "Remote"
-                    if not _is_allowed_location(location):
+                    if not is_location_ok(location, profile):
                         continue
 
                     title = job.get("job_title", "")
@@ -337,6 +349,8 @@ async def fetch_remoteok(profile: Dict) -> List[Dict]:
                 for job in data:
                     if not isinstance(job, dict) or "position" not in job:
                         continue  # skip legal notice and non-job items
+                    if not is_within_days(job.get("date")):
+                        continue
 
                     job_id = str(job.get("id", ""))
                     if job_id in seen_job_ids:

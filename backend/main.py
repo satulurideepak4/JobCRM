@@ -31,6 +31,22 @@ async def lifespan(app: FastAPI):
         except Exception as e2:
             print(f"create_all also failed: {e2}")
 
+    # Lightweight column migrations — safe to run on every startup (uses IF NOT EXISTS)
+    try:
+        from database import engine
+        with engine.connect() as conn:
+            for col_sql in [
+                "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS resume_filename VARCHAR",
+                "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS resume_file_path VARCHAR",
+            ]:
+                conn.execute(__import__('sqlalchemy').text(col_sql))
+            conn.commit()
+    except Exception as e:
+        print(f"Column migration warning: {e}")
+
+    # Ensure uploads directory exists
+    os.makedirs("uploads", exist_ok=True)
+
     # Start scheduler
     from scheduler import start_scheduler, stop_scheduler
     start_scheduler()

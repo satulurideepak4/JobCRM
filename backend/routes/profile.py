@@ -1,10 +1,11 @@
 import io
+import os
 from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from database import get_db
 from models import Profile
 import llm_service
-import os
 
 router = APIRouter(tags=["profile"])
 
@@ -23,6 +24,7 @@ async def get_profile(db: Session = Depends(get_db)):
             "experience_years": profile.experience_years,
             "preferences": profile.preferences or {},
             "has_resume": bool(profile.resume_text),
+            "resume_filename": profile.resume_filename,
             "llm_provider": os.getenv("LLM_PROVIDER", "gemini"),
         },
         "error": None,
@@ -60,6 +62,7 @@ async def upload_resume(file: UploadFile = File(...), db: Session = Depends(get_
 
     content = await file.read()
 
+    # Extract text from PDF
     try:
         import PyPDF2
         reader = PyPDF2.PdfReader(io.BytesIO(content))
@@ -72,6 +75,7 @@ async def upload_resume(file: UploadFile = File(...), db: Session = Depends(get_
     if not raw_text.strip():
         raise HTTPException(status_code=400, detail="Could not extract text from PDF")
 
+    # Parse resume with LLM
     prompt = f"""Parse this resume and extract structured information.
 Reply only in JSON: {{"name": <str>, "role": <str>, "skills": [<str>], "experience_years": <int>, "summary": <str>}}
 
@@ -87,8 +91,19 @@ Resume text:
     if not profile:
         profile = Profile()
         db.add(profile)
+        db.flush()  # get ID before saving file
 
+    # Save PDF file to disk so it can be downloaded later
+    os.makedirs("uploads", exist_ok=True)
+    file_path = f"uploads/resume_{profile.id}.pdf"
+    with open(file_path, "wb") as f:
+        f.write(content)
+
+    # Update profile
     profile.resume_raw = raw_text
+    profile.resume_filename = file.filename
+    profile.resume_file_path = file_path
+
     if isinstance(parsed, dict):
         profile.resume_text = parsed.get("summary", raw_text[:500])
         if parsed.get("name"):
@@ -105,7 +120,24 @@ Resume text:
         "data": {
             "parsed": parsed if isinstance(parsed, dict) else {},
             "raw_length": len(raw_text),
+            "filename": file.filename,
         },
         "error": None,
         "status": 200,
     }
+
+
+@router.get("/profile/resume/download")
+async def download_resume(db: Session = Depends(get_db)):
+    """Serve the saved resume PDF for viewing/downloading."""
+    profile = db.query(Profile).first()
+    if not profile or not profile.resume_file_path:
+        raise HTTPException(status_code=404, detail="No resume on file")
+    if not os.path.exists(profile.resume_file_path):
+        raise HTTPException(status_code=404, detail="Resume file not found on disk")
+
+    return FileResponse(
+        profile.resume_file_path,
+        media_type="application/pdf",
+        filename=profile.resume_filename or "resume.pdf",
+    )

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Search, Loader, Sparkles, CheckCircle, X, Briefcase, Copy, Check } from 'lucide-react'
+import { Search, Loader, Trash2, Briefcase, Copy, Check, X, RefreshCw } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { toast } from 'sonner'
 import api from '../api/client'
@@ -49,7 +49,6 @@ function DraftEmailModal({ job, onClose }) {
           exit={{ scale: 0.95, opacity: 0, y: 12 }}
           transition={{ duration: 0.2 }}
         >
-          {/* Header */}
           <div className={cn('flex items-center justify-between px-6 py-4 border-b', isDark ? 'border-dark-border' : 'border-gray-100')}>
             <h3 className={cn('text-[15px] font-bold', isDark ? 'text-slate-100' : 'text-slate-900')}>
               Cold Email — {job.company_name}
@@ -61,8 +60,6 @@ function DraftEmailModal({ job, onClose }) {
               <X size={15} />
             </button>
           </div>
-
-          {/* Body */}
           <div className="p-6 max-h-[65vh] overflow-y-auto">
             {loading ? (
               <div className={cn('flex items-center justify-center gap-2.5 py-10 text-sm', isDark ? 'text-slate-500' : 'text-slate-400')}>
@@ -101,60 +98,44 @@ function DraftEmailModal({ job, onClose }) {
 }
 
 const SOURCES = [
-  { key: 'all',        label: 'All',        color: null },
-  { key: 'greenhouse', label: 'Greenhouse', color: '#8b5cf6' },
-  { key: 'lever',      label: 'Lever',      color: '#f59e0b' },
-  { key: 'ashby',      label: 'Ashby',      color: '#06b6d4' },
-  { key: 'remotive',   label: 'Remotive',   color: '#3b82f6' },
-  { key: 'remoteok',   label: 'RemoteOK',   color: '#22c55e' },
-  { key: 'arbeitnow',  label: 'Arbeitnow',  color: '#84cc16' },
-  { key: 'jsearch',    label: 'JSearch',    color: '#eab308' },
-  { key: 'hn_hiring',  label: 'HN Hiring',  color: '#f97316' },
-  { key: 'workday',    label: 'Workday',    color: '#6366f1' },
+  { key: 'all',            label: 'All',           color: null },
+  { key: 'greenhouse',     label: 'Greenhouse',    color: '#8b5cf6' },
+  { key: 'lever',          label: 'Lever',         color: '#f59e0b' },
+  { key: 'ashby',          label: 'Ashby',         color: '#06b6d4' },
+  { key: 'himalayas',      label: 'Himalayas',     color: '#10b981' },
+  { key: 'weworkremotely', label: 'WWR',           color: '#3b82f6' },
+  { key: 'themuse',        label: 'The Muse',      color: '#ec4899' },
+  { key: 'workingnomads',  label: 'WorkNomads',    color: '#0ea5e9' },
+  { key: 'remoteco',       label: 'Remote.co',     color: '#a855f7' },
+  { key: 'workable',       label: 'Workable',      color: '#14b8a6' },
+  { key: 'remotive',       label: 'Remotive',      color: '#6366f1' },
+  { key: 'remoteok',       label: 'RemoteOK',      color: '#22c55e' },
+  { key: 'yc_jobs',        label: 'YC Jobs',       color: '#f97316' },
+  { key: 'hn_hiring',      label: 'HN Hiring',     color: '#f97316' },
+  { key: 'jsearch',        label: 'JSearch',       color: '#eab308' },
+  { key: 'arbeitnow',      label: 'Arbeitnow',     color: '#84cc16' },
 ]
 
 const STATUS_TABS = ['new', 'saved', 'dismissed']
-const LOCAL_PREFIXES = ['title_match', 'skills:', 'secondary:', 'remote', 'has_salary', 'tag_match']
 
 export default function JobSearch() {
   const { isDark } = useTheme()
   const qc = useQueryClient()
   const [activeTab, setActiveTab] = useState('new')
-  const [minScore, setMinScore] = useState(0)
-  const [aiOnly, setAiOnly] = useState(false)
+  const [minScore, setMinScore] = useState(70)
   const [remoteOnly, setRemoteOnly] = useState(false)
   const [sourceFilter, setSourceFilter] = useState('all')
   const [draftJob, setDraftJob] = useState(null)
 
-  // Unified status — search/status now includes scoring_running + scoring_progress
+  // Poll search status — drives progress banner and job list refresh
   const { data: searchStatus } = useQuery({
     queryKey: ['searchStatus'],
     queryFn: async () => (await api.get('/api/search/status')).data.data,
-    refetchInterval: (data) => (data?.running || data?.scoring_running) ? 2000 : 10000,
+    refetchInterval: (data) => data?.running ? 2000 : 10000,
     onSuccess: (data) => {
-      if (!data?.running && !data?.scoring_running) {
-        qc.invalidateQueries({ queryKey: ['jobs'] })
-      }
+      if (!data?.running) qc.invalidateQueries({ queryKey: ['jobs'] })
     },
   })
-
-  // Keep for manual re-score button
-  const { data: scoreStatus } = useQuery({
-    queryKey: ['scoreStatus'],
-    queryFn: async () => (await api.get('/api/jobs/score/status')).data.data,
-    refetchInterval: (data) => data?.running ? 2000 : false,
-    onSuccess: (data) => { if (!data?.running && data?.done > 0) qc.invalidateQueries({ queryKey: ['jobs'] }) },
-  })
-
-  // Merge scoring state from both sources
-  const activeScoringStatus = (searchStatus?.scoring_running || scoreStatus?.running)
-    ? {
-        running: true,
-        done: searchStatus?.scoring_done ?? scoreStatus?.done ?? 0,
-        total: searchStatus?.scoring_total ?? scoreStatus?.total ?? 0,
-        progress: searchStatus?.scoring_progress || scoreStatus?.progress || '',
-      }
-    : scoreStatus
 
   const { data: jobsData, isLoading } = useQuery({
     queryKey: ['jobs', activeTab, minScore],
@@ -162,30 +143,33 @@ export default function JobSearch() {
       const res = await api.get('/api/jobs', { params: { status: activeTab, min_score: minScore, limit: 100 } })
       return res.data.data
     },
-    refetchInterval: (searchStatus?.running || searchStatus?.scoring_running || scoreStatus?.running) ? 3000 : false,
+    refetchInterval: searchStatus?.running ? 3000 : false,
   })
 
+  // Search — fetches + semantic ranks automatically
   const searchMutation = useMutation({
     mutationFn: () => api.post('/api/search/trigger'),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['searchStatus'] })
-      toast.success('Job search triggered!')
+      toast.success('Job search started — results ranked by relevance automatically')
     },
   })
 
-  const scoreMutation = useMutation({
+  // Re-score — re-runs local embeddings on existing jobs (use after profile update)
+  const rescoreMutation = useMutation({
     mutationFn: () => api.post('/api/jobs/score'),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['scoreStatus'] })
-      toast.success('AI scoring started')
+      toast.success('Re-scoring jobs against updated profile…')
+      setTimeout(() => qc.invalidateQueries({ queryKey: ['jobs'] }), 3000)
     },
   })
 
-  const cleanMutation = useMutation({
-    mutationFn: () => api.post('/api/jobs/clean'),
+  // Clear all — wipe DB and start fresh
+  const clearMutation = useMutation({
+    mutationFn: () => api.delete('/api/jobs/all'),
     onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ['jobs'] })
-      toast.success(res.data.data?.message || 'Jobs cleaned')
+      toast.success(res.data.data?.message || 'All jobs cleared')
     },
   })
 
@@ -193,7 +177,6 @@ export default function JobSearch() {
   let jobs = allJobs
   if (sourceFilter !== 'all') jobs = jobs.filter(j => j.source === sourceFilter)
   if (remoteOnly) jobs = jobs.filter(j => (j.location || '').toLowerCase().includes('remote'))
-  if (aiOnly) jobs = jobs.filter(j => j.match_reasons?.length > 0 && !LOCAL_PREFIXES.some(p => j.match_reasons[0]?.startsWith(p)))
 
   const sourceCounts = SOURCES.reduce((acc, s) => {
     acc[s.key] = s.key === 'all' ? allJobs.length : allJobs.filter(j => j.source === s.key).length
@@ -201,11 +184,6 @@ export default function JobSearch() {
   }, {})
 
   const isSearching = searchMutation.isPending || searchStatus?.running
-  const isScoring = activeScoringStatus?.running
-  // Show manual score button only if search+auto-scoring are done and jobs exist
-  const showScoreBtn = jobsData?.total > 0 && !searchStatus?.running && !isScoring
-
-  const cardBase = cn('rounded-2xl border', isDark ? 'bg-dark-card border-dark-border' : 'bg-white border-gray-200')
   const btnBase = 'flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-medium border transition-all duration-150'
 
   return (
@@ -219,53 +197,75 @@ export default function JobSearch() {
 
       {/* Header */}
       <div className="flex items-center justify-between gap-3 flex-wrap">
-        <h1 className={cn('text-2xl font-bold', isDark ? 'text-slate-100' : 'text-slate-900')}>Job Search</h1>
+        <div>
+          <h1 className={cn('text-2xl font-bold', isDark ? 'text-slate-100' : 'text-slate-900')}>Job Search</h1>
+          <p className={cn('text-xs mt-0.5', isDark ? 'text-slate-500' : 'text-slate-400')}>
+            Ranked by semantic match to your profile · local AI · no API cost
+          </p>
+        </div>
 
         <div className="flex items-center gap-2 flex-wrap">
-          {searchStatus?.running && (
-            <span className="flex items-center gap-1.5 text-xs text-brand font-medium">
-              <Loader size={12} className="animate-spin" />
-              {searchStatus.progress || 'Searching...'}
-            </span>
-          )}
-
+          {/* Clear all — destructive */}
           <button
-            onClick={() => { if (window.confirm('Remove all unscored irrelevant jobs and start fresh?')) cleanMutation.mutate() }}
-            disabled={cleanMutation.isPending}
-            className={cn(btnBase, isDark ? 'bg-dark-surface border-dark-border text-slate-400 hover:text-slate-200' : 'bg-slate-50 border-gray-200 text-slate-500 hover:text-slate-700')}
-            title="Re-runs relevance filter and deletes unscored jobs that no longer match your profile"
+            onClick={() => {
+              if (window.confirm('Delete ALL jobs from the database and start fresh?')) {
+                clearMutation.mutate()
+              }
+            }}
+            disabled={clearMutation.isPending || isSearching}
+            className={cn(btnBase, 'text-red-400 border-red-500/30 hover:bg-red-500/10 disabled:opacity-40',
+              isDark ? 'bg-dark-surface' : 'bg-white')}
+            title="Wipe all jobs — useful before a clean search run"
           >
-            🧹 Clean
+            <Trash2 size={13} />
+            {clearMutation.isPending ? 'Clearing…' : 'Clear all'}
           </button>
 
+          {/* Re-score — use after profile/resume update */}
+          <button
+            onClick={() => rescoreMutation.mutate()}
+            disabled={rescoreMutation.isPending || isSearching || allJobs.length === 0}
+            className={cn(btnBase, isDark
+              ? 'bg-dark-surface border-dark-border text-slate-400 hover:text-slate-200 disabled:opacity-40'
+              : 'bg-white border-gray-200 text-slate-500 hover:text-slate-700 disabled:opacity-40')}
+            title="Re-rank existing jobs against your current profile (run after updating profile/resume)"
+          >
+            <RefreshCw size={13} className={rescoreMutation.isPending ? 'animate-spin' : ''} />
+            Re-score
+          </button>
+
+          {/* Search — main action */}
           <button
             onClick={() => searchMutation.mutate()}
             disabled={isSearching}
-            className={cn(btnBase, isDark ? 'bg-dark-surface border-dark-border text-slate-300 hover:border-brand/50' : 'bg-white border-gray-200 text-slate-700 hover:border-brand/50', 'disabled:opacity-60')}
+            className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold bg-brand hover:bg-brand/90 text-white transition-colors disabled:opacity-60"
           >
-            <Search size={14} /> {isSearching ? 'Searching...' : 'Search Now'}
+            {isSearching
+              ? <><Loader size={13} className="animate-spin" /> Searching…</>
+              : <><Search size={13} /> Search Jobs</>}
           </button>
-
-          {showScoreBtn && (
-            <button
-              onClick={() => scoreMutation.mutate()}
-              disabled={isScoring}
-              className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-semibold bg-orange-500 hover:bg-orange-600 text-white transition-colors disabled:opacity-70"
-            >
-              <Sparkles size={13} />
-              {isScoring
-                ? `Scoring ${scoreStatus.done}/${scoreStatus.total}…`
-                : scoreStatus?.progress?.startsWith('completed')
-                  ? '✓ Scored'
-                  : '+ Score with AI'}
-            </button>
-          )}
         </div>
       </div>
 
+      {/* Search progress banner */}
+      <AnimatePresence>
+        {isSearching && (
+          <motion.div
+            key="search-progress"
+            initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}
+            className="px-5 py-3.5 rounded-xl bg-brand/10 border border-brand/25 flex items-center gap-2.5"
+          >
+            <Loader size={14} className="text-brand animate-spin flex-shrink-0" />
+            <span className="text-sm text-brand font-medium">
+              {searchStatus?.progress || 'Fetching from all job boards…'}
+            </span>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Source filter bar */}
       <div className={cn('flex items-center gap-2 flex-wrap px-4 py-3 rounded-2xl border', isDark ? 'bg-dark-card border-dark-border' : 'bg-white border-gray-300 shadow-sm')}>
-        <span className={cn('text-[10px] font-bold uppercase tracking-widest mr-1', isDark ? 'text-slate-600' : 'text-slate-600')}>
+        <span className={cn('text-[10px] font-bold uppercase tracking-widest mr-1', isDark ? 'text-slate-600' : 'text-slate-500')}>
           Source
         </span>
         {SOURCES.map(s => {
@@ -287,35 +287,17 @@ export default function JobSearch() {
               )}
               style={active && !isAll ? { borderColor: s.color, color: s.color, background: s.color + '18' } : {}}
             >
-              {!isAll && (
-                <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: s.color }} />
-              )}
+              {!isAll && <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: s.color }} />}
               {s.label} · {count}
               {s.key === 'hn_hiring' && count > 0 && (
-                <span className="text-[9px] bg-orange-500 text-white rounded px-1 py-0.5 font-bold">NEW</span>
+                <span className="text-[9px] bg-orange-500 text-white rounded px-1 py-0.5 font-bold ml-0.5">NEW</span>
               )}
             </button>
           )
         })}
-
-        <div className="ml-auto flex items-center gap-2">
-          <span className={cn('text-[10px] font-bold uppercase tracking-widest', isDark ? 'text-slate-600' : 'text-slate-600')}>Score</span>
-          <button
-            onClick={() => setAiOnly(!aiOnly)}
-            className={cn(
-              'flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold border-[1.5px] transition-all duration-150',
-              aiOnly
-                ? 'border-emerald-500 bg-emerald-500/10 text-emerald-400'
-                : isDark ? 'border-slate-700 text-slate-500 hover:border-slate-600' : 'border-gray-200 text-slate-400 hover:border-gray-300',
-            )}
-          >
-            <Sparkles size={11} />
-            AI scored
-          </button>
-        </div>
       </div>
 
-      {/* Secondary filters row */}
+      {/* Filters row */}
       <div className="flex items-center gap-3 flex-wrap">
         {/* Status tabs */}
         <div className={cn('flex gap-1 p-1 rounded-lg', isDark ? 'bg-dark-surface' : 'bg-slate-100')}>
@@ -349,70 +331,21 @@ export default function JobSearch() {
         {/* Min score slider */}
         <div className="flex items-center gap-2 ml-auto">
           <span className={cn('text-xs', isDark ? 'text-slate-500' : 'text-slate-600')}>
-            Min score: <span className={cn('font-bold', isDark ? 'text-slate-200' : 'text-slate-800')}>{minScore}</span>
+            Min match: <span className={cn('font-bold', isDark ? 'text-slate-200' : 'text-slate-800')}>{minScore}</span>
           </span>
           <input
-            type="range" min={0} max={100} value={minScore}
+            type="range" min={0} max={100} step={1} value={minScore}
             onChange={e => setMinScore(Number(e.target.value))}
-            className="w-24 accent-orange-500"
+            className="w-28 accent-brand"
           />
         </div>
 
         {jobsData?.total > 0 && (
           <span className={cn('text-xs font-medium', isDark ? 'text-slate-600' : 'text-slate-500')}>
-            {jobs.length} of {jobsData.total}
+            {jobs.length} of {jobsData.total} jobs
           </span>
         )}
       </div>
-
-      {/* Search + Auto-scoring progress banners */}
-      <AnimatePresence>
-        {searchStatus?.running && (
-          <motion.div
-            key="search-progress"
-            initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}
-            className="px-5 py-3 rounded-xl bg-brand/10 border border-brand/25 flex items-center gap-2.5"
-          >
-            <Loader size={14} className="text-brand animate-spin flex-shrink-0" />
-            <span className="text-sm text-brand font-medium">{searchStatus.progress || 'Searching job boards...'}</span>
-          </motion.div>
-        )}
-
-        {isScoring && activeScoringStatus?.total > 0 && (
-          <motion.div
-            key="scoring-progress"
-            initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}
-            className="px-5 py-3.5 rounded-xl bg-blue-500/10 border border-blue-500/25 flex items-center gap-3"
-          >
-            <Sparkles size={15} className="text-blue-400 animate-pulse flex-shrink-0" />
-            <div className="flex-1">
-              <div className="text-sm text-blue-300 font-medium mb-1.5">
-                AI scoring your resume against {activeScoringStatus.total} jobs — {activeScoringStatus.done} done
-              </div>
-              <div className="h-1.5 bg-blue-500/20 rounded-full overflow-hidden">
-                <motion.div
-                  className="h-full bg-blue-400 rounded-full"
-                  animate={{ width: `${Math.round((activeScoringStatus.done / activeScoringStatus.total) * 100)}%` }}
-                  transition={{ duration: 0.5 }}
-                />
-              </div>
-            </div>
-          </motion.div>
-        )}
-
-        {!isScoring && (activeScoringStatus?.progress?.includes('done') || activeScoringStatus?.progress?.includes('complete')) && (
-          <motion.div
-            key="scoring-done"
-            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="px-5 py-3 rounded-xl bg-emerald-500/10 border border-emerald-500/25 flex items-center gap-2.5"
-          >
-            <CheckCircle size={15} className="text-emerald-400" />
-            <span className="text-sm text-emerald-300 font-medium">
-              Jobs scored by resume match — best matches shown first. Use min score slider to filter.
-            </span>
-          </motion.div>
-        )}
-      </AnimatePresence>
 
       {/* Job grid */}
       {isLoading ? (
@@ -422,19 +355,33 @@ export default function JobSearch() {
           ))}
         </div>
       ) : jobs.length === 0 ? (
-        <div className={cn('flex flex-col items-center justify-center py-20 gap-3 rounded-2xl border', isDark ? 'bg-dark-card border-dark-border' : 'bg-white border-gray-200')}>
+        <div className={cn('flex flex-col items-center justify-center py-20 gap-4 rounded-2xl border', isDark ? 'bg-dark-card border-dark-border' : 'bg-white border-gray-200')}>
           <div className={cn('w-12 h-12 rounded-xl flex items-center justify-center', isDark ? 'bg-dark-surface' : 'bg-slate-100')}>
             <Briefcase size={22} className={isDark ? 'text-slate-600' : 'text-slate-400'} />
           </div>
-          <p className={cn('text-sm text-center max-w-[260px]', isDark ? 'text-slate-500' : 'text-slate-500')}>
-            {activeTab !== 'new'
-              ? `No ${activeTab} jobs.`
-              : aiOnly
-                ? 'No AI-scored jobs yet. Run a search — scoring happens automatically.'
-                : minScore > 0
-                  ? `No jobs above score ${minScore}. Lower the min score slider.`
-                  : 'No jobs yet. Click "Search Now" — AI scoring runs automatically after.'}
-          </p>
+          <div className="text-center max-w-[280px]">
+            <p className={cn('text-sm font-medium mb-1', isDark ? 'text-slate-400' : 'text-slate-600')}>
+              {activeTab !== 'new'
+                ? `No ${activeTab} jobs yet.`
+                : minScore > 62
+                  ? `No jobs above ${minScore}% match. Lower the Min match slider.`
+                  : 'No jobs yet.'}
+            </p>
+            <p className={cn('text-xs', isDark ? 'text-slate-600' : 'text-slate-400')}>
+              {activeTab === 'new' && minScore <= 62
+                ? 'Click "Search Jobs" — only relevant matches are shown, ranked by semantic similarity to your profile.'
+                : ''}
+            </p>
+          </div>
+          {activeTab === 'new' && minScore <= 62 && (
+            <button
+              onClick={() => searchMutation.mutate()}
+              disabled={isSearching}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold bg-brand hover:bg-brand/90 text-white transition-colors disabled:opacity-60"
+            >
+              <Search size={13} /> Search Jobs
+            </button>
+          )}
         </div>
       ) : (
         <div className="grid grid-cols-[repeat(auto-fill,minmax(340px,1fr))] gap-3.5">

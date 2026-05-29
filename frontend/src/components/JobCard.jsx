@@ -1,6 +1,6 @@
 import api from '../api/client'
 import { useQueryClient } from '@tanstack/react-query'
-import { MapPin, Building2, X } from 'lucide-react'
+import { MapPin, Building2, X, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import { useTheme } from '../contexts/ThemeContext'
 import { cn } from '../lib/utils'
@@ -13,6 +13,8 @@ const SOURCE_CONFIG = {
   ashby:      { color: '#06b6d4', label: 'Ashby',      border: '#06b6d4' },
   jsearch:    { color: '#eab308', label: 'JSearch',    border: '#eab308' },
   hn_hiring:  { color: '#f97316', label: 'HN Hiring',  border: '#f97316' },
+  yc_jobs:    { color: '#f97316', label: 'YC Jobs',    border: '#f97316' },
+  workable:   { color: '#14b8a6', label: 'Workable',   border: '#14b8a6' },
   workday:    { color: '#6366f1', label: 'Workday',    border: '#6366f1' },
 }
 
@@ -75,6 +77,7 @@ export default function JobCard({ job, onDraftEmail }) {
   const { isDark } = useTheme()
   const qc = useQueryClient()
   const [loading, setLoading] = useState(false)
+  const [descExpanded, setDescExpanded] = useState(false)
   const aiScored = isAiScored(job)
   const src = SOURCE_CONFIG[job.source] || { color: '#64748b', label: job.source || 'Unknown', border: '#64748b' }
 
@@ -88,11 +91,31 @@ export default function JobCard({ job, onDraftEmail }) {
     }
   }
 
+  async function deleteJob() {
+    setLoading(true)
+    try {
+      await api.delete(`/api/jobs/${job.id}`)
+      qc.invalidateQueries({ queryKey: ['jobs'] })
+    } finally {
+      setLoading(false)
+    }
+  }
+
   const baseTags = job.tags || []
   const locationLower = (job.location || '').toLowerCase()
   const allTags = locationLower.includes('remote') && !baseTags.some(t => t.toLowerCase().includes('remote'))
     ? [...baseTags, job.location]
     : baseTags
+
+  const descText = (() => {
+    const raw = job.description || ''
+    // Strip HTML tags
+    const noTags = raw.replace(/<[^>]*>/g, ' ')
+    // Decode HTML entities
+    const txt = document.createElement('textarea')
+    txt.innerHTML = noTags
+    return txt.value.replace(/\s+/g, ' ').trim()
+  })()
 
   return (
     <div
@@ -160,14 +183,28 @@ export default function JobCard({ job, onDraftEmail }) {
         <div className="text-[13px] text-emerald-500 font-semibold">{job.salary_range}</div>
       )}
 
-      {/* Description (keyword-only) */}
-      {!aiScored && job.description && (
-        <p className={cn(
-          'text-xs leading-relaxed m-0 line-clamp-2',
-          isDark ? 'text-slate-500' : 'text-slate-600',
-        )}>
-          {job.description.replace(/<[^>]*>/g, '')}
-        </p>
+      {/* Description — clamped with Read more toggle */}
+      {descText && (
+        <div className="relative">
+          <p className={cn(
+            'text-xs leading-relaxed m-0 transition-all duration-200',
+            descExpanded ? '' : 'line-clamp-3',
+            isDark ? 'text-slate-500' : 'text-slate-500',
+          )}>
+            {descText}
+          </p>
+          {descText.length > 180 && (
+            <button
+              onClick={() => setDescExpanded(v => !v)}
+              className={cn(
+                'text-[11px] font-semibold mt-1 transition-colors',
+                isDark ? 'text-slate-500 hover:text-slate-300' : 'text-slate-400 hover:text-slate-600',
+              )}
+            >
+              {descExpanded ? 'Show less ↑' : 'Read more ↓'}
+            </button>
+          )}
+        </div>
       )}
 
       {/* Footer: location + actions */}
@@ -211,6 +248,19 @@ export default function JobCard({ job, onDraftEmail }) {
               </button>
             </>
           )}
+          <button
+            onClick={deleteJob}
+            disabled={loading}
+            title="Delete this job"
+            className={cn(
+              'p-1.5 rounded-lg border transition-colors',
+              isDark
+                ? 'border-dark-border text-slate-700 hover:text-red-400 hover:border-red-500/40'
+                : 'border-gray-300 text-slate-400 hover:text-red-500 hover:border-red-300',
+            )}
+          >
+            <Trash2 size={12} />
+          </button>
           <a
             href={job.source_url}
             target="_blank"
